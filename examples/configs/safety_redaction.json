@@ -1,0 +1,31 @@
+{
+  "meta": {
+    "id": "ex-safety",
+    "name": "Safety + Redaction",
+    "version": "1",
+    "metadata": { "showToolNodesOnCanvas": true }
+  },
+  "nodes": [
+    {
+      "id": "A",
+      "kind": "agent.codeless",
+      "label": "Guardian",
+      "data": {
+        "systemInstructions": "",
+        "styleGuide": "",
+        "model": { "provider": "openai", "modelId": "gpt-4o-mini" },
+        "context": { "historyWindow": { "mode": "LastN", "n": 3 }, "injectOrgPreamble": false, "vars": {} },
+        "tools": { "policy": "None", "attached": [], "timeoutMs": 10000, "maxCallsPerTurn": 0, "parallelism": 1, "redactPII": true },
+        "structuredOutput": { "enabled": false, "schema": {} },
+        "safety": {
+          "policyRef": "enterprise-v3",
+          "onBlock": "Refuse",
+          "piiRedaction": true,
+          "promptInjectionDefense": true
+        },
+        "telemetry": { "labels": {}, "emitUsage": true }
+      }
+    }
+  ],
+  "edges": []
+}

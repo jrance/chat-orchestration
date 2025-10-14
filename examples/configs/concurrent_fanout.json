@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "id": "ex-concurrent",
+    "name": "Concurrent Fanout Demo",
+    "version": "1",
+    "metadata": { "showToolNodesOnCanvas": true }
+  },
+  "nodes": [
+    {
+      "id": "A",
+      "kind": "agent.codeless",
+      "label": "Root",
+      "data": {
+        "systemInstructions": "",
+        "styleGuide": "",
+        "model": { "provider": "openai", "modelId": "model-a" },
+        "context": { "historyWindow": { "mode": "LastN", "n": 3 }, "injectOrgPreamble": true, "vars": {} },
+        "tools": { "policy": "None", "attached": [], "timeoutMs": 10000, "maxCallsPerTurn": 0, "parallelism": 2, "redactPII": true },
+        "structuredOutput": { "enabled": false, "schema": {} },
+        "safety": { "policyRef": "default" },
+        "telemetry": { "labels": {}, "emitUsage": true }
+      }
+    },
+    {
+      "id": "B",
+      "kind": "agent.codeless",
+      "label": "Branch B",
+      "data": {
+        "systemInstructions": "",
+        "styleGuide": "",
+        "model": { "provider": "openai", "modelId": "model-b" },
+        "context": { "historyWindow": { "mode": "LastN", "n": 3 }, "injectOrgPreamble": true, "vars": {} },
+        "tools": { "policy": "None", "attached": [], "timeoutMs": 10000, "maxCallsPerTurn": 0, "parallelism": 2, "redactPII": true },
+        "structuredOutput": { "enabled": false, "schema": {} },
+        "safety": { "policyRef": "default" },
+        "telemetry": { "labels": {}, "emitUsage": true }
+      }
+    },
+    {
+      "id": "C",
+      "kind": "agent.codeless",
+      "label": "Branch C",
+      "data": {
+        "systemInstructions": "",
+        "styleGuide": "",
+        "model": { "provider": "openai", "modelId": "model-c" },
+        "context": { "historyWindow": { "mode": "LastN", "n": 3 }, "injectOrgPreamble": true, "vars": {} },
+        "tools": { "policy": "None", "attached": [], "timeoutMs": 10000, "maxCallsPerTurn": 0, "parallelism": 2, "redactPII": true },
+        "structuredOutput": { "enabled": false, "schema": {} },
+        "safety": { "policyRef": "default" },
+        "telemetry": { "labels": {}, "emitUsage": true }
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "from": "A", "to": "B" },
+    { "id": "e2", "from": "A", "to": "C" }
+  ]
+}

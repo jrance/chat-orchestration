@@ -1,0 +1,23 @@
+services:
+  orchestrator:
+    image: codeless-orchestrator:local
+    build: ..
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - LOG_LEVEL=info
+      - WEB_CONCURRENCY=2
+      - WORKER_TIMEOUT=0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL}
+      - OPENAI_ORG=${OPENAI_ORG}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ORG_PREAMBLE=${ORG_PREAMBLE}
+      - ORG_PREAMBLE_FILE=${ORG_PREAMBLE_FILE}
+      - TELEMETRY_ENABLE=${TELEMETRY_ENABLE:-0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-codeless-orchestrator}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    restart: unless-stopped
+

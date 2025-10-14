@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "id": "ex-structured",
+    "name": "Structured Output",
+    "version": "1",
+    "metadata": { "showToolNodesOnCanvas": true }
+  },
+  "nodes": [
+    {
+      "id": "A",
+      "kind": "agent.codeless",
+      "label": "Structured",
+      "data": {
+        "systemInstructions": "",
+        "styleGuide": "",
+        "model": { "provider": "openai", "modelId": "gpt-4o-mini" },
+        "context": { "historyWindow": { "mode": "LastN", "n": 3 }, "injectOrgPreamble": false, "vars": {} },
+        "tools": { "policy": "None", "attached": [], "timeoutMs": 10000, "maxCallsPerTurn": 0, "parallelism": 1, "redactPII": true },
+        "structuredOutput": {
+          "enabled": true,
+          "schema": {
+            "type": "object",
+            "properties": { "answer": { "type": "string" }},
+            "required": ["answer"],
+            "additionalProperties": false
+          },
+          "onViolation": "RetryAndRepair",
+          "maxRepairAttempts": 1,
+          "postProcess": { "ensureMarkdown": false, "normalizeWhitespace": true }
+        },
+        "safety": { "policyRef": "default" },
+        "telemetry": { "labels": {}, "emitUsage": true }
+      }
+    }
+  ],
+  "edges": []
+}

@@ -1,0 +1,12 @@
+# SSE streaming execute using curl (Bash/Linux/macOS)
+# -N disables buffering so events are printed as they arrive
+
+curl -N -X POST http://localhost:8000/execute/stream \
+  -H "Content-Type: application/json" \
+  -d "{\"config\":$(cat examples/configs/single_agent_with_tool.json),\"input\":{\"text\":\"hello\"}}"
+
+# Windows PowerShell equivalent
+curl -N -Method POST http://localhost:8000/execute/stream \
+  -Headers @{ 'Content-Type' = 'application/json' } \
+  -Body ("{`"config`":$((Get-Content examples/configs/single_agent_with_tool.json -Raw)),`"input`":{`"text`":`"hello`"}}")
+

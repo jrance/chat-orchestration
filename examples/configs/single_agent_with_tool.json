@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "id": "ex-single-tool",
+    "name": "Single Agent With Tool",
+    "version": "1",
+    "metadata": { "showToolNodesOnCanvas": true }
+  },
+  "nodes": [
+    {
+      "id": "A",
+      "kind": "agent.codeless",
+      "label": "Researcher",
+      "data": {
+        "systemInstructions": "You are a helpful research assistant.",
+        "styleGuide": "",
+        "model": { "provider": "openai", "modelId": "gpt-4o-mini" },
+        "context": {
+          "historyWindow": { "mode": "LastN", "n": 5 },
+          "injectOrgPreamble": true,
+          "vars": {}
+        },
+        "tools": {
+          "policy": "Auto",
+          "attached": ["tool:web-search"],
+          "timeoutMs": 10000,
+          "maxCallsPerTurn": 0,
+          "parallelism": 2,
+          "redactPII": true
+        },
+        "structuredOutput": { "enabled": false, "schema": {} },
+        "safety": { "policyRef": "default" },
+        "telemetry": { "labels": {}, "emitUsage": true }
+      }
+    },
+    {
+      "id": "tool:web-search",
+      "kind": "tool",
+      "label": "web_search",
+      "data": {
+        "name": "web_search",
+        "toolId": "tool:web-search",
+        "version": "0",
+        "parameterOverrides": { "max_results": 3 }
+      }
+    }
+  ],
+  "edges": []
+}

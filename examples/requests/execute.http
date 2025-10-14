@@ -1,0 +1,13 @@
+# Non-streamed execute using curl (Bash/Linux/macOS)
+# Assumes server running at http://localhost:8000
+
+curl -X POST http://localhost:8000/execute \
+  -H "Content-Type: application/json" \
+  -d "{\"config\":$(cat examples/configs/single_agent_with_tool.json),\"input\":{\"text\":\"hello\"}}"
+
+# Windows PowerShell equivalent (use Get-Content instead of type/cat)
+# Note: Preserve quotes by using -Raw
+curl -Method POST http://localhost:8000/execute \
+  -Headers @{ 'Content-Type' = 'application/json' } \
+  -Body ("{`"config`":$((Get-Content examples/configs/single_agent_with_tool.json -Raw)),`"input`":{`"text`":`"hello`"}}")
+
