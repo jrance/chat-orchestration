@@ -8,7 +8,27 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..config.schema import GraphConfig, ModelParams
 from ..providers.base import LLMProvider
 from ..providers.types import ChatChunk, ChatMessage, Usage
+from ..providers.types import ToolSpec
 from ..tools.registry import ToolEntry, ToolRegistry
+
+
+class ToolAttachmentBinding(BaseModel):
+    """Resolved binding between an agent's tool attachment and a registry entry.
+
+    Supports both node-id attachments (preferred) and direct registry toolId strings
+    (legacy). For node-id attachments, a unique function name is generated to
+    disambiguate multiple attachments of the same tool type.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    node_id: str | None
+    label: str
+    tool_id: str
+    function_name: str
+    overrides: dict[str, Any]
+    tool_spec: ToolSpec
+    entry: ToolEntry
 
 
 class CompiledSingleAgent(NamedTuple):
@@ -18,6 +38,9 @@ class CompiledSingleAgent(NamedTuple):
     graph: Any  # LangGraph app
     provider: LLMProvider
     tools_attached: dict[str, ToolEntry]  # key: tool name -> entry
+    # Map of provider function name -> resolved binding (single-agent only for now)
+    # Multi-agent builders may leave this empty.
+    tool_bindings_by_fn: dict[str, ToolAttachmentBinding] | None
     tool_config: Any  # ToolsConfig (from config.schema)
     model_params: ModelParams
     structured_output: Any | None
@@ -55,6 +78,7 @@ __all__ = [
     "ChatMessage",
     "ChatChunk",
     "LLMProvider",
+    "ToolAttachmentBinding",
     "ToolEntry",
     "ToolRegistry",
     "Usage",

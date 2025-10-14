@@ -1,0 +1,230 @@
+1:from __future__ import annotations
+2:
+3:from collections.abc import Iterator
+4:from typing import Any
+5:
+6:from ..config.schema import GraphConfig
+7:from ..providers.types import ChatChunk, ChatMessage, ChatRequest
+8:from ..tools.registry import ToolRegistry, default_registry
+9:from .compiler import compile_graph
+10:from .state import EngineState
+11:from .types import CompiledSingleAgent, EngineRunInput, EngineRunResult, ProviderResolver
+12:from ..runtime.templates import render
+13:from ..runtime.structured_output import ensure_structured_output, build_system_hint
+14:from ..runtime.safety import redact_text
+15:from ..runtime.filters import pre_provider_filter
+16:from ..runtime.policies import get_policy
+17:
+18:
+19:class OrchestrationEngine:
+20:    def compile(
+21:        self,
+22:        cfg: GraphConfig,
+23:        *,
+24:        provider_resolver: ProviderResolver | None = None,
+25:        registry: ToolRegistry | None = None,
+26:    ) -> CompiledSingleAgent:
+27:        return compile_graph(
+28:            cfg, provider_resolver=provider_resolver, registry=registry or default_registry
+29:        )
+30:
+31:    # ------------------- Non-stream execution -------------------
+32:    def execute(
+33:        self, compiled: CompiledSingleAgent, run_input: EngineRunInput | dict[str, Any]
+34:    ) -> EngineRunResult:
+35:        # Coerce inputs
+36:        if not isinstance(run_input, EngineRunInput):
+37:            run_input = EngineRunInput.model_validate(run_input)
+38:        # Normalize run input messages
+39:        if isinstance(run_input.messages, str):
+40:            # Optionally template user input with request-level vars (not past messages)
+41:            text = render(run_input.messages, run_input.vars or {})
+42:            initial_messages = [ChatMessage(role="user", content=text)]
+43:        else:
+44:            initial_messages = list(run_input.messages)
+45:
+46:        state: EngineState = {
+47:            "messages": initial_messages,
+48:            "metadata": dict(run_input.metadata or {}),
+49:            "tool_calls": None,
+50:            "steps": 0,
+51:            "agent_cursor": None,
+52:            "concurrent": None,
+53:            "group": None,
+54:        }
+55:        # Plumb request vars for runtime prompt assembly
+56:        if run_input.vars:
+57:            meta = state.get("metadata", {})
+58:            meta["vars"] = dict(run_input.vars)
+59:            state["metadata"] = meta
+60:
+61:        # Invoke graph
+62:        app = compiled.graph
+63:        final_state: EngineState = app.invoke(state)
+64:
+65:        # Compute finish info
+66:        meta = final_state.get("metadata", {}) or {}
+67:        finish_reason = meta.get("_last_finish_reason", None) or "stop"
+68:        usage = meta.get("_last_usage", None)
+69:        return EngineRunResult(
+70:            messages=final_state["messages"],
+71:            finish_reason=finish_reason,
+72:            usage=usage,
+73:            steps=final_state.get("steps", 0),
+74:        )
+75:
+76:    # ------------------- Basic streaming -------------------
+77:    def stream_execute(
+78:        self, compiled: CompiledSingleAgent, run_input: EngineRunInput | dict[str, Any]
+79:    ) -> Iterator[ChatChunk]:
+80:        if not isinstance(run_input, EngineRunInput):
+81:            run_input = EngineRunInput.model_validate(run_input)
+82:        # Basic implementation: stream a single assistant turn when tools are disabled
+83:        tools_policy = getattr(compiled.tool_config, "policy", "Auto")
+84:        has_tools = bool(compiled.tools_attached)
+85:
+86:        if tools_policy != "None" and has_tools:
+87:            # For now, only stream turns without tool calls; full interleaving in later PR
+88:            # Fall back to non-stream path by performing a single provider stream for the next turn
+89:            yield from self._stream_single_turn(compiled, run_input)
+90:            return
+91:
+92:        # Streaming when no tools are available or policy is None
+93:        yield from self._stream_single_turn(compiled, run_input)
+94:
+95:    # Internal helper
+96:    def _stream_single_turn(
+97:        self, compiled: CompiledSingleAgent, run_input: EngineRunInput
+98:    ) -> Iterator[ChatChunk]:
+99:        provider = compiled.provider
+100:        mp = compiled.model_params
+101:        # Telemetry (if attached via metadata)
+102:        telemetry = None
+103:        try:
+104:            telemetry = (run_input.metadata or {}).get("_telemetry")
+105:            if telemetry is not None and hasattr(telemetry, "set_provider_model"):
+106:                telemetry.set_provider_model(getattr(mp, "provider", None), getattr(mp, "model_id", None))
+107:        except Exception:
+108:            telemetry = None
+109:
+110:        if isinstance(run_input.messages, str):
+111:            text = render(run_input.messages, run_input.vars or {})
+112:            messages = [ChatMessage(role="user", content=text)]
+113:        else:
+114:            messages = list(run_input.messages)
+115:
+116:        # Safety pre-filter for streaming path (block or redact)
+117:        safety_cfg = getattr(compiled, "safety", None)
+118:        if safety_cfg is not None:
+119:            policy = get_policy(getattr(safety_cfg, "policy_ref", None))
+120:            pre = pre_provider_filter(messages, safety_cfg=safety_cfg, policy=policy)
+121:            if pre.blocked:
+122:                refusal = pre.refusal_message or ChatMessage(role="assistant", content="")
+123:                yield ChatChunk(type="role", role="assistant")
+124:                txt = refusal.content if isinstance(refusal.content, str) else ""
+125:                if getattr(safety_cfg, "pii_redaction", True):
+126:                    txt = redact_text(txt)
+127:                yield ChatChunk(type="content.delta", text_delta=txt)
+128:                yield ChatChunk(type="message.end", finish_reason="content_filter", usage=None)
+129:                return
+130:            messages = pre.redacted_messages
+131:
+132:        # Build request (no tools for basic streaming path, or included if none attached)
+133:        req = ChatRequest(
+134:            model=mp.model_id,
+135:            messages=messages,
+136:            tools=None,
+137:            tool_choice="none",
+138:            temperature=mp.temperature,
+139:            top_p=mp.top_p,
+140:            max_tokens=mp.max_tokens,
+141:            stop=mp.stop or None,
+142:            seed=mp.seed,
+143:            json_mode_enabled=mp.json_mode_enabled,
+144:            response_format_schema=None,
+145:            metadata=run_input.metadata or None,
+146:            timeout=None,
+147:        )
+148:        # If structured output is enabled on root agent, do a non-stream call and then emit SSE
+149:        so = getattr(compiled, "structured_output", None)
+150:        if so is not None and getattr(so, "enabled", False):
+151:            hint = build_system_hint(getattr(so, "schema_", None) or None)
+152:            t0 = None
+153:            try:
+154:                if telemetry is not None and hasattr(telemetry, "start_timer"):
+155:                    t0 = telemetry.start_timer("turn")
+156:            except Exception:
+157:                t0 = None
+158:            assistant, usage, finish_reason, _attempts = ensure_structured_output(
+159:                provider, req, policy_cfg=so, post_cfg=getattr(so, "post_process", None), system_hint=hint
+160:            )
+161:            # Emit a simple SSE sequence
+162:            yield ChatChunk(type="role", role="assistant")
+163:            text = assistant.content if isinstance(assistant.content, str) else ""
+164:            if text:
+165:                yield ChatChunk(type="content.delta", text_delta=text)
+166:            yield ChatChunk(type="message.end", finish_reason=finish_reason, usage=usage)
+167:            # Telemetry turn
+168:            try:
+169:                if telemetry is not None:
+170:                    if usage is not None and hasattr(telemetry, "usage"):
+171:                        telemetry.usage(
+172:                            getattr(usage, "prompt_tokens", None),
+173:                            getattr(usage, "completion_tokens", None),
+174:                            getattr(usage, "total_tokens", None),
+175:                        )
+176:                    dur_ms = telemetry.stop_timer(t0) if t0 is not None else 0.0
+177:                    had_tools = bool(getattr(assistant, "tool_calls", None))
+178:                    if hasattr(telemetry, "record_turn"):
+179:                        telemetry.record_turn(
+180:                            duration_ms=dur_ms, finish_reason=finish_reason, had_tool_calls=had_tools
+181:                        )
+182:            except Exception:
+183:                pass
+184:            return
+185:
+186:        # Otherwise, stream normally
+187:        assembled_text: list[str] = []
+188:        role_seen: str | None = None
+189:        pii = False
+190:        try:
+191:            safety = getattr(compiled, "safety", None)
+192:            if safety is not None and getattr(safety, "pii_redaction", True):
+193:                pii = True
+194:        except Exception:
+195:            pii = False
+196:
+197:        t0 = None
+198:        try:
+199:            if telemetry is not None and hasattr(telemetry, "start_timer"):
+200:                t0 = telemetry.start_timer("turn")
+201:        except Exception:
+202:            t0 = None
+203:        finish_reason_seen = None
+204:        for chunk in provider.stream(req):
+205:            if chunk.type == "role":
+206:                role_seen = chunk.role or role_seen
+207:                yield chunk
+208:            elif chunk.type == "content.delta" and (chunk.text_delta or ""):
+209:                text = chunk.text_delta or ""
+210:                if pii:
+211:                    text = redact_text(text)
+212:                assembled_text.append(text)
+213:                yield ChatChunk(type="content.delta", text_delta=text)
+214:            else:
+215:                yield chunk
+216:            if chunk.type == "message.end":
+217:                finish_reason_seen = chunk.finish_reason
+218:        # If we saw end, record telemetry
+219:        try:
+220:            if telemetry is not None:
+221:                dur_ms = telemetry.stop_timer(t0) if t0 is not None else 0.0
+222:                if hasattr(telemetry, "record_turn"):
+223:                    telemetry.record_turn(
+224:                        duration_ms=dur_ms, finish_reason=finish_reason_seen, had_tool_calls=False
+225:                    )
+226:        except Exception:
+227:            pass
+228:
+229:
+230:__all__ = ["OrchestrationEngine"]

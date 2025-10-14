@@ -1,12 +1,49 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from typing import Any, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+
+def _load_env_from_file(path: str = ".env") -> None:
+    """Best-effort .env loader so the server works outside VS Code.
+
+    - Tries python-dotenv if installed
+    - Falls back to a tiny parser (KEY=VALUE, no export, ignores # comments)
+    - Never overrides already-set variables
+    """
+    # Try python-dotenv if available
+    try:  # pragma: no cover - optional dependency path
+        from dotenv import load_dotenv  # type: ignore
+
+        load_dotenv(path, override=False)
+        return
+    except Exception:
+        pass
+
+    # Lightweight fallback
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    s = line.strip()
+                    if not s or s.startswith("#"):
+                        continue
+                    if "=" not in s:
+                        continue
+                    key, val = s.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+    except Exception:
+        # Silent best-effort only
+        pass
 
 
 def _json_response_class() -> type[JSONResponse]:
@@ -45,6 +82,9 @@ def _add_middlewares(app: FastAPI) -> None:
 
 
 def build_app() -> FastAPI:
+    # Ensure env vars are available even when not launched via VS Code
+    _load_env_from_file()
+
     app = FastAPI(title="Codeless Orchestrator Server", version="0.0.1", default_response_class=_json_response_class())
     _add_middlewares(app)
 
@@ -67,4 +107,3 @@ def build_app() -> FastAPI:
 
 # Uvicorn entrypoint
 app = build_app()
-

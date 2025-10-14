@@ -71,12 +71,12 @@ def test_compile_metadata_and_capabilities() -> None:
     assert len(agents) == 1
     assert agents[0]["id"] == "agent-1"
     assert agents[0]["provider"] == "openai"
-    # Tool metadata present
+    # Tools projection present with function names
     tools = data["tools"]
     assert len(tools) == 1
-    assert tools[0]["tool_id"] == "tool:web-search"
+    assert tools[0]["toolId"] == "tool:web-search"
+    assert isinstance(tools[0].get("functionName"), str)
     # Capabilities
     caps = data["capabilities"]
     assert caps.get("streaming") is True
     assert caps.get("tools") is True
-

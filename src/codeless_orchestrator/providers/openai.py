@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from typing import Any
 
 from .base import LLMProvider
 from .exceptions import ProviderError
-from .settings import get_openai_client_kwargs
+from .settings import get_openai_client_kwargs, get_httpx_proxies, get_httpx_verify
 from .transform_openai import (
     from_openai_message,
     to_openai_messages,
@@ -30,9 +31,41 @@ def _build_client(
     kwargs = get_openai_client_kwargs(
         api_key=api_key, base_url=base_url, organization=organization, timeout=timeout
     )
+    # Optional debug of env resolution (no secrets printed). Enable with ORCH_DEBUG_ENV=1
+    if os.environ.get("ORCH_DEBUG_ENV") == "1":  # pragma: no cover - debug only
+        ak = os.getenv("OPENAI_API_KEY")
+        bu = os.getenv("OPENAI_BASE_URL")
+        oo = os.getenv("OPENAI_ORG")
+        tv = os.getenv("OPENAI_TIMEOUT")
+        print("[orchestrator] OpenAI env -> api_key?", bool(ak), "base_url?", bool(bu), "org?", bool(oo), "timeout?", bool(tv), flush=True)
+        # Also show what kwargs we finally pass (mask api key)
+        dbg = dict(kwargs)
+        if "api_key" in dbg and dbg["api_key"]:
+            dbg["api_key"] = "***" + str(dbg["api_key"])[-4:]
+        print("[orchestrator] OpenAI client kwargs:", dbg, flush=True)
     # OpenAI initializer doesn't accept timeout directly; with_options handles it.
     timeout_value = kwargs.pop("timeout", None)
-    client = OpenAI(**kwargs)
+    # Optional proxy support via httpx client
+    http_client = None
+    try:
+        proxy = get_httpx_proxies()
+        verify = get_httpx_verify()
+        if proxy:
+            import httpx  # lazy import
+
+            if os.environ.get("ORCH_DEBUG_ENV") == "1":
+                print("[orchestrator] OpenAI proxy enabled", "verify=", verify, flush=True)
+            if verify is None:
+                http_client = httpx.Client(proxy=proxy)
+            else:
+                http_client = httpx.Client(proxy=proxy, verify=verify)
+        else:
+            if os.environ.get("ORCH_DEBUG_ENV") == "1":
+                print("[orchestrator] OpenAI proxy disabled", flush=True)
+    except Exception as e:  # Broad except to translate into ProviderError
+        http_client = None
+
+    client = OpenAI(http_client=http_client, **kwargs)
     if timeout_value is not None:
         client = client.with_options(timeout=timeout_value)
     return client
@@ -73,6 +106,26 @@ class OpenAIProvider(LLMProvider):
             kwargs["stop"] = req.stop
         if req.seed is not None:
             kwargs["seed"] = req.seed
+
+        # Optional lightweight debug: print which high-level options are set
+        if os.environ.get("ORCH_DEBUG_LLM_ARGS") == "1":  # pragma: no cover - debug only
+            try:
+                tool_names = [t.name for t in (req.tools or [])]
+                print(
+                    "[orchestrator] openai.chat args: tools=",
+                    tool_names,
+                    "tool_choice=",
+                    req.tool_choice,
+                    "temperature=",
+                    req.temperature,
+                    "top_p=",
+                    req.top_p,
+                    "max_tokens=",
+                    req.max_tokens,
+                    flush=True,
+                )
+            except Exception:
+                pass
 
         # JSON mode support with optional schema enforcement
         if req.json_mode_enabled:
@@ -176,6 +229,20 @@ class OpenAIProvider(LLMProvider):
                 kwargs["response_format"] = {"type": "json_object"}
         if req.timeout is not None:
             kwargs["timeout"] = req.timeout
+
+        # Optional lightweight debug
+        if os.environ.get("ORCH_DEBUG_LLM_ARGS") == "1":  # pragma: no cover - debug only
+            try:
+                tool_names = [t.name for t in (req.tools or [])]
+                print(
+                    "[orchestrator] openai.stream args: tools=",
+                    tool_names,
+                    "tool_choice=",
+                    req.tool_choice,
+                    flush=True,
+                )
+            except Exception:
+                pass
 
         try:
             events = self._client.chat.completions.create(**kwargs)

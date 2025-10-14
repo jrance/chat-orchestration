@@ -17,7 +17,8 @@
             ],
             "justMyCode": true,
             "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
         },
         {
             "name": "FastAPI (uvicorn, reload)",
@@ -36,7 +37,8 @@
             ],
             "justMyCode": true,
             "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env"
         }
     ]
 }

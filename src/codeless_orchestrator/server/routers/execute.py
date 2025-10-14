@@ -141,47 +141,60 @@ async def execute_stream(
         raise to_http_error(e)
 
     # Try to use sse-starlette if available for heartbeat support
+    # Avoid raising ModuleNotFoundError when not installed (e.g., during debugging)
+    use_sse_starlette = False
     try:  # pragma: no cover - optional path
-        from sse_starlette.sse import EventSourceResponse
+        import importlib.util as _ilu
 
-        def _iter_events() -> Iterator[bytes]:
-            try:
-                for chunk in engine.stream_execute(compiled, run_input):
-                    ev = chunk_to_event(chunk)
-                    ev["request_id"] = req_id
-                    ev["timestamp"] = _now_iso()
-                    if emit_metrics and ev.get("type") == "message.end":
-                        ev["metrics"] = telemetry.snapshot()
-                    yield _encode_sse(ev)
-            except Exception as ex:  # emit error then end
-                yield _encode_sse({"type": "error", "error": {"message": str(ex)}, "request_id": req_id, "timestamp": _now_iso()})
-            finally:
-                yield _encode_sse({"type": "end", "request_id": req_id, "timestamp": _now_iso()})
+        use_sse_starlette = _ilu.find_spec("sse_starlette.sse") is not None
+    except Exception:  # pragma: no cover - extremely defensive
+        use_sse_starlette = False
 
-        # Yield pre-encoded SSE bytes so sse-starlette won't map dicts to ServerSentEvent(**data)
-        return EventSourceResponse(_iter_events(), ping=15.0, headers={"X-Request-ID": req_id})
-    except Exception:
-        # Manual SSE via StreamingResponse
-        async def _gen() -> AsyncIterator[bytes]:
-            try:
-                for chunk in engine.stream_execute(compiled, run_input):
-                    ev = chunk_to_event(chunk)
-                    ev["request_id"] = req_id
-                    ev["timestamp"] = _now_iso()
-                    if emit_metrics and ev.get("type") == "message.end":
-                        ev["metrics"] = telemetry.snapshot()
-                    yield _encode_sse(ev)
-                    # Respect disconnect if possible
-                    if await request.is_disconnected():
-                        break
-            except Exception as ex:
-                yield _encode_sse({"type": "error", "error": {"message": str(ex)}, "request_id": req_id, "timestamp": _now_iso()})
-            finally:
-                yield _encode_sse({"type": "end", "request_id": req_id, "timestamp": _now_iso()})
+    if use_sse_starlette:
+        try:  # pragma: no cover - optional path
+            from sse_starlette.sse import EventSourceResponse
 
-        headers = {
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Request-ID": req_id,
-        }
-        return StreamingResponse(_gen(), media_type="text/event-stream", headers=headers)
+            def _iter_events() -> Iterator[bytes]:
+                try:
+                    for chunk in engine.stream_execute(compiled, run_input):
+                        ev = chunk_to_event(chunk)
+                        ev["request_id"] = req_id
+                        ev["timestamp"] = _now_iso()
+                        if emit_metrics and ev.get("type") == "message.end":
+                            ev["metrics"] = telemetry.snapshot()
+                        yield _encode_sse(ev)
+                except Exception as ex:  # emit error then end
+                    yield _encode_sse({"type": "error", "error": {"message": str(ex)}, "request_id": req_id, "timestamp": _now_iso()})
+                finally:
+                    yield _encode_sse({"type": "end", "request_id": req_id, "timestamp": _now_iso()})
+
+            # Yield pre-encoded SSE bytes so sse-starlette won't map dicts to ServerSentEvent(**data)
+            return EventSourceResponse(_iter_events(), ping=15.0, headers={"X-Request-ID": req_id})
+        except Exception:
+            # Fall through to manual SSE
+            pass
+
+    # Manual SSE via StreamingResponse
+    async def _gen() -> AsyncIterator[bytes]:
+        try:
+            for chunk in engine.stream_execute(compiled, run_input):
+                ev = chunk_to_event(chunk)
+                ev["request_id"] = req_id
+                ev["timestamp"] = _now_iso()
+                if emit_metrics and ev.get("type") == "message.end":
+                    ev["metrics"] = telemetry.snapshot()
+                yield _encode_sse(ev)
+                # Respect disconnect if possible
+                if await request.is_disconnected():
+                    break
+        except Exception as ex:
+            yield _encode_sse({"type": "error", "error": {"message": str(ex)}, "request_id": req_id, "timestamp": _now_iso()})
+        finally:
+            yield _encode_sse({"type": "end", "request_id": req_id, "timestamp": _now_iso()})
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Request-ID": req_id,
+    }
+    return StreamingResponse(_gen(), media_type="text/event-stream", headers=headers)

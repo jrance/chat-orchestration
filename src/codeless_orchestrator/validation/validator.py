@@ -62,12 +62,15 @@ def validate_graph(cfg: GraphConfig) -> ValidationReport:
                 )
             )
 
-    # Tool attachments must exist and be of kind tool
+    # Tool attachments must exist and be of kind tool (when they reference nodes)
     tool_ids = {n.id for n in cfg.nodes if isinstance(n, ToolNode)}
     for n in cfg.nodes:
         if isinstance(n, AgentNode):
             for t in n.data.tools.attached:
+                # Allow direct registry tool IDs (e.g., 'tool:web-search') in attachments
                 if t not in node_by_id:
+                    if isinstance(t, str) and t.startswith("tool:"):
+                        continue
                     issues.append(
                         ValidationIssue(
                             code="tools.unknown_attachment",
@@ -77,10 +80,12 @@ def validate_graph(cfg: GraphConfig) -> ValidationReport:
                         )
                     )
                 elif t not in tool_ids:
+                    node = node_by_id.get(t)
+                    node_label = getattr(node, "label", "") if node is not None else ""
                     issues.append(
                         ValidationIssue(
                             code="tools.attachment_not_tool",
-                            message=f"Attached id {t} is not a tool",
+                            message=f"Attached id {t} is not a tool (label: '{node_label}')",
                             path=["nodes", n.id, "tools", "attached"],
                             severity="ERROR",
                         )

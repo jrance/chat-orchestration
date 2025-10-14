@@ -13,6 +13,7 @@ from ..providers.openai import OpenAIProvider
 from ..providers.types import ChatMessage, ChatRequest
 from ..tools.execution import execute_tool_call
 from ..tools.registry import ToolEntry, ToolRegistry, default_registry
+from .tool_bindings import resolve_attached_tools
 from .errors import (
     GraphCompileError,
     OrchestrationUnsupportedError,
@@ -79,26 +80,13 @@ def compile_single_agent(
     resolver = provider_resolver or _default_provider_resolver()
     provider = resolver(agent_node.data.model)
 
-    # Registry and attached tool specs
+    # Registry and resolved tool bindings/specs
     reg = registry or default_registry
-    attached_ids = list(agent_node.data.tools.attached or [])
-    provider_tool_specs = (
-        reg.to_provider_tool_specs(attached_ids) if attached_ids else []
-    )
+    bindings = resolve_attached_tools(agent_node, cfg, reg)
+    provider_tool_specs = [b.tool_spec for b in bindings]
 
-    # Build mapping: tool name -> ToolEntry (using registry entries)
-    name_to_entry: dict[str, ToolEntry] = {}
-    for tool_id in attached_ids:
-        entry = reg.get(tool_id)
-        name_to_entry[entry.impl.name] = entry
-
-    # Build parameter overrides map from ToolNodes if present
-    overrides_by_name: dict[str, dict[str, Any]] = {}
-    for n in cfg.nodes:
-        if isinstance(n, ToolNode):
-            # Only consider tool nodes that are attached on the agent
-            if n.data.tool_id in attached_ids:
-                overrides_by_name[n.data.name] = dict(n.data.parameter_overrides or {})
+    # Build mapping: function name -> binding
+    bindings_by_fn: dict[str, Any] = {b.function_name: b for b in bindings}
 
     tool_cfg: ToolsConfig = agent_node.data.tools
 
@@ -272,11 +260,12 @@ def compile_single_agent(
         telemetry = (state.get("metadata", {}) or {}).get("_telemetry")
 
         for _idx, tc in enumerate(tool_calls[:limit]):
-            tool_name = tc.name
-            if tool_name not in name_to_entry:
-                raise ToolExecutionError(tool_name=tool_name, reason="Tool not attached")
-            entry = name_to_entry[tool_name]
-            overrides = overrides_by_name.get(tool_name) or {}
+            fn_name = tc.name
+            binding = bindings_by_fn.get(fn_name)
+            if binding is None:
+                raise ToolExecutionError(tool_name=fn_name, reason="Unknown tool function (did you attach the tool?)")
+            entry = binding.entry
+            overrides = binding.overrides or {}
             # Execute
             result_obj = execute_tool_call(
                 entry.impl,
@@ -318,7 +307,8 @@ def compile_single_agent(
         agent_id=agent_node.id,
         graph=app,
         provider=provider,
-        tools_attached=name_to_entry,
+        tools_attached={b.entry.impl.name: b.entry for b in bindings},
+        tool_bindings_by_fn=bindings_by_fn,
         tool_config=tool_cfg,
         model_params=agent_node.data.model,
         structured_output=agent_node.data.structured_output,
@@ -645,6 +635,7 @@ def compile_graph(
         graph=app,
         provider=root_provider,
         tools_attached=tools_attached,
+        tool_bindings_by_fn=None,
         tool_config=tool_cfg,
         model_params=model_params,
         structured_output=structured,

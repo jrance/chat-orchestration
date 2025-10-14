@@ -5,7 +5,7 @@ from typing import Any
 
 from .base import LLMProvider
 from .exceptions import ProviderError
-from .settings import get_gemini_api_key, get_gemini_timeout
+from .settings import get_gemini_api_key, get_gemini_timeout, apply_requests_proxy_env
 from .transform_gemini import (
     from_gemini_candidate,
     map_finish_reason,
@@ -31,6 +31,12 @@ def _build_model(
         import google.generativeai as genai
     except Exception as e:  # pragma: no cover - import error path
         raise ProviderError(f"Failed to import google-generativeai: {e}") from e
+
+    # Ensure proxy env vars for requests-based transports if enabled
+    try:
+        apply_requests_proxy_env()
+    except Exception:
+        pass
 
     key = api_key or get_gemini_api_key()
     if key:

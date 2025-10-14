@@ -12,6 +12,7 @@ from ...tools.registry import ToolRegistry
 from .. import deps
 from ..errors import to_http_error
 from ..schemas import CompileResponse
+from ...engine.tool_bindings import resolve_attached_tools
 
 router = APIRouter(prefix="", tags=["compile"])
 
@@ -50,7 +51,9 @@ def compile_config(
                 if False:
                     yield  # pragma: no cover - generator form
 
-        compiled = engine.compile(cfg, provider_resolver=lambda _mp: _StubProvider(), registry=registry)
+        compiled = engine.compile(
+            cfg, provider_resolver=lambda _mp: _StubProvider(), registry=registry
+        )
 
         # Agents metadata
         agents_meta: list[dict[str, Any]] = []
@@ -66,28 +69,34 @@ def compile_config(
                     }
                 )
 
-        # Tools metadata from nodes
+        # Resolved tools: attachments projected with function names
         tools_meta: list[dict[str, Any]] = []
         for n in cfg.nodes:
-            if getattr(n, "kind", None) == "tool":
-                tools_meta.append(
-                    {
-                        "id": n.id,
-                        "label": n.label,
-                        "tool_id": n.data.tool_id,
-                        "version": n.data.version,
-                    }
-                )
+            if getattr(n, "kind", None) == "agent.codeless":
+                try:
+                    bindings = resolve_attached_tools(n, cfg, registry)
+                except Exception:
+                    bindings = []
+                for b in bindings:
+                    tools_meta.append(
+                        {
+                            "nodeId": b.node_id,
+                            "label": b.label,
+                            "toolId": b.tool_id,
+                            "functionName": b.function_name,
+                        }
+                    )
 
         capabilities = {
             "streaming": True,
-            "tools": any((a.get("tools") for a in agents_meta)),
+            "tools": bool(tools_meta),
         }
 
         notes: list[str] = []
         # Hints
         if kind == "single" and compiled.tools_attached:
             notes.append("Single-agent with tools attached")
+            notes.append("Tools use unique function names per attachment")
 
         return CompileResponse(
             ok=True,
