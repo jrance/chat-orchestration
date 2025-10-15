@@ -16,19 +16,16 @@ from ..tools.registry import ToolEntry, ToolRegistry, default_registry
 from .tool_bindings import resolve_attached_tools
 from .errors import (
     GraphCompileError,
-    OrchestrationUnsupportedError,
     ToolExecutionError,
 )
-from .graph_builders import concurrent as conc_builder
-from .graph_builders import groupchat as groupchat_builder
-from .graph_builders import handoff as handoff_builder
-from .graph_builders import sequential as seq_builder
 from .state import EngineState
 from .types import CompiledSingleAgent, ProviderResolver
 from ..runtime.history import assemble_prompt
 from ..runtime.structured_output import ensure_structured_output, build_system_hint
 from ..runtime.filters import pre_provider_filter, post_provider_filter
 from ..runtime.policies import get_policy
+from .regions.compose import OrchestrationResolver
+from .regions.types import LeafRegion, collect_region_tree
 
 
 def _default_provider_resolver() -> ProviderResolver:
@@ -303,6 +300,14 @@ def compile_single_agent(
     app = graph.compile()
 
     # Package compiled artifact
+    leaf_region = LeafRegion(
+        id=f"leaf:{agent_node.id}",
+        agents=[agent_node.id],
+        agent_id=agent_node.id,
+        notes=["leaf"],
+    )
+    region_tree = collect_region_tree(leaf_region)
+
     return CompiledSingleAgent(
         agent_id=agent_node.id,
         graph=app,
@@ -313,334 +318,58 @@ def compile_single_agent(
         model_params=agent_node.data.model,
         structured_output=agent_node.data.structured_output,
         safety=agent_node.data.safety,
+        region_tree=region_tree,
+        region_notes=list(leaf_region.notes),
     )
-
-
-def _agent_graph(cfg: GraphConfig) -> tuple[dict[str, AgentNode], list[tuple[str, str]]]:
-    agents: dict[str, AgentNode] = {n.id: n for n in cfg.nodes if isinstance(n, AgentNode)}
-    edges: list[tuple[str, str]] = []
-    for e in cfg.edges:
-        if e.from_ in agents and e.to in agents:
-            edges.append((e.from_, e.to))
-    return agents, edges
-
-
-def _has_self_loop(aedges: list[tuple[str, str]]) -> bool:
-    return any(u == v for u, v in aedges)
-
-
-def _sccs(nodes: list[str], edges: list[tuple[str, str]]) -> list[list[str]]:
-    # Tarjan's algorithm
-    index = 0
-    indices: dict[str, int] = {}
-    lowlink: dict[str, int] = {}
-    stack: list[str] = []
-    onstack: set[str] = set()
-    result: list[list[str]] = []
-    adj: dict[str, list[str]] = {n: [] for n in nodes}
-    for u, v in edges:
-        if u in adj:
-            adj[u].append(v)
-
-    def strongconnect(v: str) -> None:
-        nonlocal index
-        indices[v] = index
-        lowlink[v] = index
-        index += 1
-        stack.append(v)
-        onstack.add(v)
-        for w in adj.get(v, []):
-            if w not in indices:
-                strongconnect(w)
-                lowlink[v] = min(lowlink[v], lowlink[w])
-            elif w in onstack:
-                lowlink[v] = min(lowlink[v], indices[w])
-        # If v is a root node, pop the stack and output an SCC
-        if lowlink[v] == indices[v]:
-            scc: list[str] = []
-            while True:
-                w = stack.pop()
-                onstack.remove(w)
-                scc.append(w)
-                if w == v:
-                    break
-            result.append(scc)
-
-    for n in nodes:
-        if n not in indices:
-            strongconnect(n)
-    return result
 
 
 def _detect_orchestration(cfg: GraphConfig) -> tuple[str, dict[str, Any]]:
-    """Detect orchestration pattern.
+    """Lightweight detection of orchestration kind for metadata endpoints.
 
-    Returns (kind, data) where kind in {"single", "sequential", "handoff"}.
+    Returns a tuple of (kind, data). Currently used by the /compile route
+    to label the orchestration as "single" when there is exactly one
+    agent.codeless node; otherwise returns a generic label along with
+    the root region kind if analysis succeeds.
     """
-    agents, aedges = _agent_graph(cfg)
-    if not agents:
-        raise GraphCompileError("No agent.codeless nodes found")
+    # Single-agent fast path
+    agents = [n for n in cfg.nodes if isinstance(n, AgentNode)]
     if len(agents) == 1:
-        return "single", {"only": next(iter(agents.values()))}
+        return "single", {"agents": [agents[0].id]}
 
-    if not aedges:
-        raise OrchestrationUnsupportedError(
-            "Multiple agents without edges are unsupported (connect them or reduce to one agent)"
-        )
+    # Attempt region analysis for a more descriptive kind; fall back softly
+    try:
+        from .regions.analyzer import RegionAnalyzer
 
-    # Group chat detection: any SCC size >= 2 or a self-loop
-    node_ids = list(agents.keys())
-    scc_list = _sccs(node_ids, aedges)
-    # Identify SCCs that represent cycles (size >=2) or a self loop present
-    cyc_sccs: list[list[str]] = [s for s in scc_list if len(s) >= 2]
-    if not cyc_sccs and _has_self_loop(aedges):
-        # Find node(s) with self-loop
-        loop_nodes = [u for u, v in aedges if u == v]
-        if loop_nodes:
-            cyc_sccs = [[loop_nodes[0]]]
-    if cyc_sccs:
-        # Use the first detected SCC; order participants by appearance in cfg.nodes for determinism
-        scc_set = set(cyc_sccs[0])
-        ordered_participants = [
-            n.id
-            for n in cfg.nodes
-            if isinstance(n, AgentNode) and n.id in scc_set
-        ]
-        # Compute degrees inside SCC
-        indeg_scc: dict[str, int] = {aid: 0 for aid in ordered_participants}
-        outdeg_scc: dict[str, int] = {aid: 0 for aid in ordered_participants}
-        internal_edges = [(u, v) for u, v in aedges if u in scc_set and v in scc_set]
-        for u, v in internal_edges:
-            outdeg_scc[u] += 1
-            indeg_scc[v] += 1
-        # Heuristic: moderator if exactly one node has indeg>=2 and outdeg>=2
-        # OR label contains 'moderator'
-        hub_candidates = [
-            aid
-            for aid in ordered_participants
-            if indeg_scc[aid] >= 2 and outdeg_scc[aid] >= 2
-        ]
-        labels = {aid: agents[aid].label or "" for aid in ordered_participants}
-        label_mod = [aid for aid, lab in labels.items() if "moderator" in lab.lower()]
-        mode = "round_robin"
-        moderator_id: str | None = None
-        if len(hub_candidates) == 1:
-            mode = "moderator"
-            moderator_id = hub_candidates[0]
-        if label_mod:
-            mode = "moderator"
-            moderator_id = label_mod[0]
-        return "groupchat", {
-            "participants": ordered_participants,
-            "mode": mode,
-            "moderator_id": moderator_id,
-        }
-
-    # indegree / outdegree and adjacency
-    indeg: dict[str, int] = {aid: 0 for aid in agents}
-    outdeg: dict[str, int] = {aid: 0 for aid in agents}
-    adj: dict[str, list[str]] = {aid: [] for aid in agents}
-    for u, v in aedges:
-        outdeg[u] += 1
-        indeg[v] += 1
-        adj[u].append(v)
-
-    roots = [aid for aid, d in indeg.items() if d == 0]
-    if len(roots) != 1:
-        raise OrchestrationUnsupportedError(
-            "Multiple roots detected; fan-out/concurrency is planned for PR 8"
-        )
-
-    root = roots[0]
-
-    # Check for cycles and reachability from root via Kahn's algorithm restricted to reachable set
-    from collections import deque
-
-    reach_indeg = indeg.copy()
-    q = deque([root])
-    visited: list[str] = []
-    seen_set: set[str] = set()
-    while q:
-        u = q.popleft()
-        visited.append(u)
-        seen_set.add(u)
-        for v in adj.get(u, []):
-            reach_indeg[v] -= 1
-            # Enqueue only when all parents seen in reachable subgraph
-            if reach_indeg[v] == 0 and v not in seen_set:
-                q.append(v)
-
-    if len(visited) != len(agents):
-        # Either cycles or disconnected components
-        # Detect cycle quickly: if any node in reachable set still has indegree > 0
-        has_cycle = any(d > 0 for d in reach_indeg.values())
-        if has_cycle:
-            raise OrchestrationUnsupportedError(
-                "Agent graph contains cycles; group chat planned for PR 9"
-            )
-        raise OrchestrationUnsupportedError(
-            "Agent graph has disconnected components; single-root, connected graphs only"
-        )
-
-    # Sequential if outdegree <= 1 for all and path covers all agents following unique next
-    if all(outdeg[aid] <= 1 for aid in agents):
-        # Construct order by following next pointers from root
-        order: list[str] = []
-        cur = root
-        seen: set[str] = set()
-        ok = True
-        while True:
-            order.append(cur)
-            seen.add(cur)
-            outs = adj.get(cur, [])
-            if not outs:
-                break
-            if len(outs) > 1:
-                ok = False
-                break
-            nxt = outs[0]
-            if nxt in seen:
-                ok = False
-                break
-            cur = nxt
-        if ok and len(order) == len(agents):
-            return "sequential", {"order": order}
-
-    # Otherwise handoff if at least one node has outdegree > 1
-    if any(outdeg[aid] > 1 for aid in agents):
-        return "handoff", {"adjacency": adj, "root": root}
-
-    # Fallback unsupported pattern
-    raise OrchestrationUnsupportedError(
-        "Unsupported agent graph pattern; requires either a chain or branching handoff"
-    )
-
-
-def _detect_concurrent(
-    cfg: GraphConfig,
-) -> tuple[bool, dict[str, Any]]:
-    """Detect a simple concurrent fan-out/fan-in stage.
-
-    Returns (True, data) if detected where data contains:
-      - root: str (the fan-out source agent id)
-      - branches: list[str]
-      - next: str | None (common join agent if present)
-    """
-    # Heuristic opt-in: only consider when meta name hints at concurrency
-    name_hint = (getattr(getattr(cfg, "meta", None), "name", "") or "").lower()
-    if "concurrent" not in name_hint:
-        return False, {}
-
-    agents: dict[str, AgentNode] = {n.id: n for n in cfg.nodes if isinstance(n, AgentNode)}
-    aedges: list[tuple[str, str]] = [
-        (e.from_, e.to) for e in cfg.edges if e.from_ in agents and e.to in agents
-    ]
-    if not agents:
-        return False, {}
-    # Build degree/adjacency
-    indeg: dict[str, int] = {aid: 0 for aid in agents}
-    outdeg: dict[str, int] = {aid: 0 for aid in agents}
-    adj: dict[str, list[str]] = {aid: [] for aid in agents}
-    for u, v in aedges:
-        outdeg[u] += 1
-        indeg[v] += 1
-        adj[u].append(v)
-
-    # Single root only
-    roots = [aid for aid, d in indeg.items() if d == 0]
-    if len(roots) != 1:
-        return False, {}
-    root = roots[0]
-    # Fan-out at root
-    if outdeg[root] <= 1:
-        return False, {}
-    branches = list(adj[root])
-    if not branches:
-        return False, {}
-    # Case 1: leaves
-    if all(outdeg[b] == 0 for b in branches):
-        return True, {"root": root, "branches": branches, "next": None}
-    # Case 2: common join
-    if all(outdeg[b] == 1 for b in branches):
-        nexts = [adj[b][0] for b in branches]
-        uniq = set(nexts)
-        if len(uniq) == 1:
-            return True, {"root": root, "branches": branches, "next": nexts[0]}
-    return False, {}
-
-
+        region = RegionAnalyzer(cfg).analyze()
+        # Map region kinds to a simple top-level label when possible
+        root_kind = getattr(region, "kind", "unknown")
+        label = "composed"
+        if root_kind in ("sequential", "handoff", "concurrent", "groupchat", "leaf"):
+            # Represent leaf with multiple agents (shouldn't usually happen) as composed
+            label = "single" if root_kind == "leaf" and len(getattr(region, "agents", []) or []) == 1 else "composed"
+        return label, {"rootRegionKind": root_kind}
+    except Exception:
+        # Non-fatal for metadata; caller should proceed
+        return "unknown", {}
 def compile_graph(
     cfg: GraphConfig,
     *,
     provider_resolver: Callable[[Any], LLMProvider] | None = None,
     registry: ToolRegistry | None = None,
 ) -> CompiledSingleAgent:
-    """Compile a graph config into a runnable LangGraph app.
-
-    Supports single-agent, sequential multi-agent, and handoff multi-agent
-    orchestrations. Returns a CompiledSingleAgent artifact with metadata seeded
-    from the root agent for streaming compatibility.
-    """
     resolver = provider_resolver or _default_provider_resolver()
     reg = registry or default_registry
 
-    kind, data = _detect_orchestration(cfg)
-    if kind == "single":
+    agents = [n for n in cfg.nodes if isinstance(n, AgentNode)]
+    if len(agents) == 1:
         return compile_single_agent(cfg, provider_resolver=resolver, registry=reg)
-    if kind == "sequential":
-        app, root_id, root_provider, tools_attached, tool_cfg, model_params, structured, safety = seq_builder.build(
-            cfg, data["order"], provider_resolver=resolver, registry=reg
-        )
-    elif kind == "groupchat":
-        app, root_id, root_provider, tools_attached, tool_cfg, model_params, structured, safety = (
-            groupchat_builder.build(
-                cfg,
-                data["participants"],
-                provider_resolver=resolver,
-                registry=reg,
-                mode=data.get("mode", "round_robin"),
-                moderator_id=data.get("moderator_id"),
-                max_turns=None,
-            )
-        )
-    else:
-        # Before falling back to handoff, try to detect a simple concurrent stage
-        is_conc, cdata = _detect_concurrent(cfg)
-        if is_conc:
-            # Infer strategy inside builder; allows tests to monkeypatch
-            app, root_id, root_provider, tools_attached, tool_cfg, model_params, structured, safety = (
-                conc_builder.build(
-                    cfg,
-                    cdata["root"],
-                    cdata["branches"],
-                    cdata.get("next"),
-                    provider_resolver=resolver,
-                    registry=reg,
-                    merge_strategy=None,
-                )
-            )
-        else:
-            app, root_id, root_provider, tools_attached, tool_cfg, model_params, structured, safety = (
-                handoff_builder.build(
-                    cfg,
-                    data["adjacency"],
-                    data["root"],
-                    provider_resolver=resolver,
-                    registry=reg,
-                )
-            )
 
-    return CompiledSingleAgent(
-        agent_id=root_id,
-        graph=app,
-        provider=root_provider,
-        tools_attached=tools_attached,
-        tool_bindings_by_fn=None,
-        tool_config=tool_cfg,
-        model_params=model_params,
-        structured_output=structured,
-        safety=safety,
+    orchestrator = OrchestrationResolver(
+        cfg=cfg,
+        provider_resolver=resolver,
+        registry=reg,
     )
+    return orchestrator.compile()
 
 
 __all__ = ["compile_single_agent", "compile_graph"]

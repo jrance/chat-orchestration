@@ -5,7 +5,7 @@ from codeless_orchestrator.providers.transform_openai import (
     to_openai_messages,
     to_openai_tools,
 )
-from codeless_orchestrator.providers.types import ChatMessage, ToolSpec
+from codeless_orchestrator.providers.types import ChatMessage, ToolCall, ToolSpec
 
 
 def test_to_openai_messages_tool_and_text() -> None:
@@ -19,6 +19,52 @@ def test_to_openai_messages_tool_and_text() -> None:
         {"role": "user", "content": "Hello"},
         {"role": "tool", "content": '{"result":42}', "tool_call_id": "call_1"},
     ]
+
+
+def test_to_openai_messages_with_assistant_tool_calls() -> None:
+    """Test that assistant messages with tool_calls are properly converted."""
+    msgs = [
+        ChatMessage(role="user", content="who won the game?"),
+        ChatMessage(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="call_123",
+                    name="web_search",
+                    arguments_json='{"q":"panthers vs cowboys"}',
+                )
+            ],
+        ),
+        ChatMessage(
+            role="tool",
+            content='{"result": "Panthers won"}',
+            tool_call_id="call_123",
+        ),
+    ]
+
+    out = to_openai_messages(msgs)
+    assert len(out) == 3
+    assert out[0] == {"role": "user", "content": "who won the game?"}
+    assert out[1] == {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "call_123",
+                "type": "function",
+                "function": {
+                    "name": "web_search",
+                    "arguments": '{"q":"panthers vs cowboys"}',
+                },
+            }
+        ],
+    }
+    assert out[2] == {
+        "role": "tool",
+        "content": '{"result": "Panthers won"}',
+        "tool_call_id": "call_123",
+    }
 
 
 def test_to_openai_tools() -> None:

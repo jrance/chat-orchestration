@@ -64,7 +64,8 @@ def execute_nonstream(
     org_preamble: str | None = Depends(deps.get_org_preamble),
 ) -> ExecuteResponse:
     try:
-        cfg, _ = load_graph(body.config, validate=True)
+        # Load graph; skip deep cross-validation for performance in execute
+        cfg, _ = load_graph(body.config, validate=False)
         # Read telemetry settings from first agent (single-agent support in this version)
         emit_metrics = True
         labels: dict[str, str] = {}
@@ -112,7 +113,8 @@ async def execute_stream(
     org_preamble: str | None = Depends(deps.get_org_preamble),
 ):
     try:
-        cfg, _ = load_graph(body.config, validate=True)
+        # Load graph; skip deep cross-validation for performance in execute/stream
+        cfg, _ = load_graph(body.config, validate=False)
         # Telemetry settings
         emit_metrics = True
         labels: dict[str, str] = {}

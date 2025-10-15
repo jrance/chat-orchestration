@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from dataclasses import dataclass, field
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,6 +11,7 @@ from ..providers.base import LLMProvider
 from ..providers.types import ChatChunk, ChatMessage, Usage
 from ..providers.types import ToolSpec
 from ..tools.registry import ToolEntry, ToolRegistry
+from .regions.types import RegionTree
 
 
 class ToolAttachmentBinding(BaseModel):
@@ -31,20 +33,21 @@ class ToolAttachmentBinding(BaseModel):
     entry: ToolEntry
 
 
-class CompiledSingleAgent(NamedTuple):
-    """Compiled artifact for executing a single agent.codeless graph."""
+@dataclass(slots=True)
+class CompiledSingleAgent:
+    """Compiled artifact for executing a graph produced by the resolver."""
 
     agent_id: str
     graph: Any  # LangGraph app
     provider: LLMProvider
-    tools_attached: dict[str, ToolEntry]  # key: tool name -> entry
-    # Map of provider function name -> resolved binding (single-agent only for now)
-    # Multi-agent builders may leave this empty.
+    tools_attached: dict[str, ToolEntry]
     tool_bindings_by_fn: dict[str, ToolAttachmentBinding] | None
     tool_config: Any  # ToolsConfig (from config.schema)
     model_params: ModelParams
     structured_output: Any | None
     safety: Any | None
+    region_tree: RegionTree | None = None
+    region_notes: list[str] = field(default_factory=list)
 
 
 class EngineRunInput(BaseModel):

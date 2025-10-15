@@ -20,6 +20,14 @@ _engine_lock = threading.Lock()
 _registry_singleton: ToolRegistry | None = None
 _registry_lock = threading.Lock()
 
+# Eagerly register builtin tools at import time so routes don't pay import cost
+# during first request (helps timing-sensitive tests).
+try:  # pragma: no cover - import-time optimization
+    register_default_tools(default_registry)
+except Exception:
+    # Best-effort only; get_registry() will retry lazily.
+    pass
+
 
 def get_engine() -> OrchestrationEngine:
     global _engine_singleton

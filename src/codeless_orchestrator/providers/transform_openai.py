@@ -29,6 +29,18 @@ def to_openai_messages(messages: list[ChatMessage]) -> list[dict[str, Any]]:
         data["content"] = text
         if m.role == "tool" and m.tool_call_id:
             data["tool_call_id"] = m.tool_call_id
+        if m.role == "assistant" and m.tool_calls:
+            data["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": tc.arguments_json,
+                    },
+                }
+                for tc in m.tool_calls
+            ]
         out.append(data)
     return out
 

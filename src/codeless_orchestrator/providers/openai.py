@@ -93,9 +93,9 @@ class OpenAIProvider(LLMProvider):
         }
         if req.tools:
             kwargs["tools"] = to_openai_tools(req.tools)
-        if req.tool_choice is not None:
-            # Accept "auto", "none", or a dict
-            kwargs["tool_choice"] = req.tool_choice  # forwarded as-is
+            # Only pass tool_choice if tools are provided; OpenAI rejects otherwise
+            if req.tool_choice is not None:
+                kwargs["tool_choice"] = req.tool_choice  # forwarded as-is
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
         if req.top_p is not None:
@@ -199,8 +199,9 @@ class OpenAIProvider(LLMProvider):
         }
         if req.tools:
             kwargs["tools"] = to_openai_tools(req.tools)
-        if req.tool_choice is not None:
-            kwargs["tool_choice"] = req.tool_choice
+            # Only pass tool_choice if tools are provided; OpenAI rejects otherwise
+            if req.tool_choice is not None:
+                kwargs["tool_choice"] = req.tool_choice
         if req.temperature is not None:
             kwargs["temperature"] = req.temperature
         if req.top_p is not None:
