@@ -584,7 +584,7 @@ sequenceDiagram
 
 [Create a component diagram with the following details:
 - Title: "Extension Points"
-- Nodes: Provider adapter, Tool (BaseTool), Graph Builder, Policy
+- Nodes: Provider adapter, Tool BaseTool, Graph Builder, Policy
 - Arrows: Integration points with Engine and Server]
 
 ### Extension Points
@@ -594,7 +594,7 @@ flowchart LR
   Engine[Engine]
   Server[Server]
   Prov[Provider Adapter]
-  Tool[Tool (BaseTool)]
+  Tool[Tool BaseTool]
   Builder[Graph Builder]
   Policy[Policy]
 
@@ -620,18 +620,18 @@ References:
 
 [Create a deployment diagram with the following details:
 - Title: "Deployment Topology"
-- Nodes: Client(s), API Gateway (optional), FastAPI pods, Provider endpoints, Telemetry backend
+- Nodes: Clients, API Gateway optional, FastAPI pods, Provider endpoints, Telemetry backend
 - Ports and protocols: HTTPS, SSE]
 
 ### Deployment Topology
 
 ```mermaid
 flowchart LR
-  Clients[Client(s)] -->|HTTPS| Gateway[(API Gateway)]
+  Clients[Clients] -->|HTTPS| Gateway[(API Gateway)]
   Gateway -->|HTTPS| Pods[[FastAPI Pods]]
   Pods -->|HTTPS| Providers[(Provider Endpoints)]
   Pods -.-> Telemetry[(Telemetry Backend)]
-  Clients <-- SSE --> Pods
+  Clients -- SSE --- Pods
 ```
 
 ## Trade-offs & Decisions (ADRs)
