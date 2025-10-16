@@ -369,14 +369,14 @@ Reference: [docs/tools.md](tools.md)
 
 [Create a flow diagram with the following details:
 - Title: "Tool Loop"
-- Inputs: Assistant message with tool_calls[]
+- Inputs: Assistant message with tool_calls array
 - Steps: validate args → dispatch to tool → timeout handling → capture result → append tool message with tool_call_id → continue turn]
 
 ### Tool Loop
 
 ```mermaid
 flowchart LR
-  I[Assistant message with tool_calls[]] --> V[Validate args]
+  I[Assistant message with tool_calls array] --> V[Validate args]
   V --> D[Dispatch to tool]
   D --> T{Timeout?}
   T -- Yes --> F[Fail/timeout handling]
