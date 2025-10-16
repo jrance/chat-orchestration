@@ -20,11 +20,61 @@ This document explains the design of the Codeless Orchestration application: its
   - Tool call fix note: [TOOL_CALL_FIX.md](../TOOL_CALL_FIX.md)
   - Decisions (ADRs): [docs/decisions](decisions/)
 
-[Create a cover diagram with the following details:
-- Title: "Codeless Orchestrator System Overview"
-- Components: Client, FastAPI Server, Orchestration Engine (LangGraph), Providers (OpenAI, Gemini), Tools (Web Search), Telemetry Sink
-- External services: OpenAI API, Google Generative AI, DuckDuckGo Search (optional)
-- Data flows: Request/Response, SSE stream, Tool invocations, Metrics]
+### Codeless Orchestrator System Overview
+
+```mermaid
+flowchart LR
+  %% Title: Codeless Orchestrator System Overview
+
+  %% Components
+  C[Client]
+
+  subgraph S[FastAPI Server]
+    API[/Compile / Validate / Execute/]
+  end
+
+  subgraph E[Orchestration Engine (LangGraph)]
+    ENG[Executor / Turn Loop]
+    REG[Tool Registry]
+  end
+
+  subgraph P[Providers]
+    P1[OpenAI Adapter]
+    P2[Gemini Adapter]
+  end
+
+  subgraph T[Tools]
+    W[Web Search]
+  end
+
+  TELEM[(Telemetry Sink)]
+
+  %% External services
+  OA[(OpenAI API)]
+  GA[(Google Generative AI)]
+  DDG[(DuckDuckGo Search) ]
+
+  %% Data flows
+  C -->|Request| API
+  API -->|Response| C
+  API -->|SSE stream| C
+
+  API -->|execute| ENG
+  ENG -->|provider call| P1
+  ENG -->|provider call| P2
+  P1 -->|HTTPS| OA
+  P2 -->|HTTPS| GA
+
+  ENG -->|tool invocation| REG
+  REG -->|dispatch| W
+  W -->|HTTP| DDG
+
+  API -.->|Metrics| TELEM
+  ENG -.->|Metrics| TELEM
+  P1 -.->|Metrics| TELEM
+  P2 -.->|Metrics| TELEM
+  W -.->|Metrics| TELEM
+```
 
 ## Purpose & Goals
 
@@ -41,10 +91,33 @@ This document explains the design of the Codeless Orchestration application: its
 - Tools: Built-in and custom tools surfaced as function-calling specs to models.
 - Telemetry: In-memory counters/timers; optional OTLP export (see Telemetry doc).
 
-[Create a context diagram with the following details:
-- Actors: Client, FastAPI, Engine, Providers, Tools, Telemetry Sink
-- External boundaries: OpenAI API, Google GenAI, DuckDuckGo Search (optional)
-- Trust zones: Internal server vs external providers]
+### System Context Diagram
+
+```mermaid
+flowchart LR
+  subgraph Internal["Internal (Server)"]
+    FastAPI[FastAPI]
+    Engine[Engine]
+    subgraph Providers
+      OpenAIAdapter[OpenAI Adapter]
+      GeminiAdapter[Gemini Adapter]
+    end
+    Tools[Tools]
+    Telemetry[(Telemetry Sink)]
+  end
+
+  Client[Client] -->|HTTPS| FastAPI
+  FastAPI --> Engine
+  Engine --> OpenAIAdapter
+  Engine --> GeminiAdapter
+  Engine --> Tools
+
+  OpenAIAdapter -->|HTTPS| OpenAIAPI[(OpenAI API)]
+  GeminiAdapter -->|HTTPS| GenAI[(Google Generative AI)]
+  Tools -->|HTTP| DDG[(DuckDuckGo Search)]
+
+  Internal -.->|Metrics| Telemetry
+```
 
 ## Architecture Overview
 
@@ -58,10 +131,39 @@ See: [docs/architecture.md](architecture.md)
 - Server: FastAPI endpoints for compile/validate/execute (stream and non-stream).
 - Telemetry: Timers and counters per run/turn/tool; optional OTLP export.
 
-[Create a component diagram with the following details:
-- Boxes: Compiler, Engine, Runtime Pipelines (Context, Safety, Structured Output), Providers, Tools, Server, Telemetry
-- Interfaces: Provider-agnostic Chat API, Tool Registry API
-- Data stores: In-memory state only (persistence hooks optional)]
+### Architecture Components
+
+```mermaid
+flowchart LR
+  subgraph Server
+    API[/Compile | Validate | Execute/]
+  end
+
+  subgraph Engine[Engine]
+    Compiler[Compiler]
+    subgraph Pipelines[Runtime Pipelines]
+      Ctx[Context]
+      Safety[Safety]
+      SO[Structured Output]
+    end
+  end
+
+  Providers[Providers]
+  Tools[Tool Registry]
+  Telemetry[(Telemetry)]
+
+  API --> Compiler
+  Compiler --> Engine
+  Engine --> Providers
+  Engine --> Tools
+  API -.-> Telemetry
+  Engine -.-> Telemetry
+  Providers -.-> Telemetry
+  Tools -.-> Telemetry
+
+  API -. "Chat API" .- Providers
+  Engine -. "Tool Registry API" .- Tools
+```
 
 ## Core Data Model
 
@@ -77,6 +179,55 @@ Reference: [docs/providers.md](providers.md)
 [Create a data model diagram with the following details:
 - Entities: ChatMessage, ToolSpec, ToolCall, ChatRequest, ChatResponse, ChatChunk
 - Relationships: Assistant message → ToolCalls; Tool message references ToolCall via `tool_call_id`]
+
+### Core Data Model
+
+```mermaid
+erDiagram
+  ChatMessage {
+    string role
+    string content
+    string tool_call_id
+    json   tool_calls
+  }
+  ToolSpec {
+    string name
+    string description
+    json   parameters
+  }
+  ToolCall {
+    string id
+    string name
+    json   arguments_json
+  }
+  ChatRequest {
+    string model
+    json   messages
+    json   tools
+    string tool_choice
+    number temperature
+    number top_p
+    number max_tokens
+    json   response_format_schema
+    boolean json_mode_enabled
+    json   metadata
+    number timeout
+  }
+  ChatResponse {
+    json   message
+    string finish_reason
+    json   usage
+  }
+  ChatChunk {
+    string type
+    json   delta
+  }
+  ChatRequest ||--o{ ChatMessage : contains
+  ChatResponse ||--|| ChatMessage : returns
+  ChatMessage ||--o{ ToolCall : "assistant tool_calls"
+  ChatMessage }o--|| ToolCall : "tool message -> tool_call_id"
+  ChatChunk }o--|| ChatMessage : relates_to
+```
 
 ## Execution Lifecycle
 
@@ -105,6 +256,38 @@ High level path from request to response.
 - Lifelines: Client, Server (FastAPI), Engine, Provider, Tool Registry, Tool Impl
 - Steps: compile → context → provider call (stream) → tool_call start/delta/end → tool execution → tool result message → provider follow-up → final message → SSE end]
 
+### Execute Turn with Tools and Streaming
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant S as Server (FastAPI)
+  participant E as Engine
+  participant P as Provider
+  participant R as Tool Registry
+  participant T as Tool Impl
+
+  C->>S: POST /execute/stream (SSE)
+  S->>E: compile(config)
+  E-->>S: compiled graph
+  S->>E: build context
+  E-->>S: context ready
+  S->>P: provider call (stream=true, tools)
+  P-->>S: message.delta (tokens)
+  P-->>S: tool_call.start (id,name)
+  P-->>S: tool_call.delta (args)
+  P-->>S: tool_call.end (args)
+  S->>R: dispatch(id,name,args)
+  R->>T: invoke(args)
+  T-->>R: result
+  R-->>S: tool.result
+  S->>P: follow-up with tool message
+  P-->>S: message.delta ... message.end
+  S-->>C: SSE events (deltas, tool_call, tool.result, message.end)
+  S-->>C: done (SSE end)
+```
+
 ## Orchestration Modes & Builders
 
 Reference: [docs/orchestrations.md](orchestrations.md)
@@ -120,6 +303,23 @@ Reference: [docs/orchestrations.md](orchestrations.md)
 - Decision logic: sequential vs handoff vs concurrent vs group chat
 - Output: Selected builder and constructed LangGraph app]
 
+### Mode Detection
+
+```mermaid
+flowchart TB
+  A[Agent-only graph] --> B{Has router?}
+  B -- Yes --> H[Handoff Builder]
+  B -- No --> C{Has fan-out?}
+  C -- Yes --> X[Concurrent Builder]
+  C -- No --> G{Many speakers?}
+  G -- Yes --> GC[Group Chat Builder]
+  G -- No --> S[Sequential Builder]
+  H --> L[LangGraph app]
+  X --> L
+  GC --> L
+  S --> L
+```
+
 ## Prompt & Context Pipeline
 
 Reference: [docs/context.md](context.md)
@@ -132,6 +332,30 @@ Reference: [docs/context.md](context.md)
 - Title: "Context Assembly"
 - Inputs: Org preamble, agent system instructions, style guide, history messages, vars
 - Output: Final prompt parts and normalized request]
+
+### Context Assembly
+
+```mermaid
+flowchart LR
+  Org[Org preamble]
+  Sys[Agent system instructions]
+  Style[Style guide]
+  Hist[History messages]
+  Vars[Variables]
+  Build[Build System Message]
+  Trim[History Window]
+  Interp[Interpolate Variables]
+  Out[Normalized Request]
+
+  Org --> Build
+  Sys --> Build
+  Style --> Build
+  Build --> Interp
+  Vars --> Interp
+  Hist --> Trim
+  Trim --> Out
+  Interp --> Out
+```
 
 ## Tools & Function Calling
 
@@ -148,6 +372,21 @@ Reference: [docs/tools.md](tools.md)
 - Inputs: Assistant message with tool_calls[]
 - Steps: validate args → dispatch to tool → timeout handling → capture result → append tool message with tool_call_id → continue turn]
 
+### Tool Loop
+
+```mermaid
+flowchart LR
+  I[Assistant message with tool_calls[]] --> V[Validate args]
+  V --> D[Dispatch to tool]
+  D --> T{Timeout?}
+  T -- Yes --> F[Fail/timeout handling]
+  F --> C[Append tool message (error) with tool_call_id]
+  T -- No --> X[Execute Tool]
+  X --> R[Capture result]
+  R --> C[Append tool message with tool_call_id]
+  C --> N[Continue turn]
+```
+
 ## Providers and Transforms
 
 Reference: [docs/providers.md](providers.md), decisions: [0002 OpenAI](decisions/0002-openai-provider.md), [0003 Gemini](decisions/0003-gemini-adapter.md)
@@ -161,6 +400,39 @@ Reference: [docs/providers.md](providers.md), decisions: [0002 OpenAI](decisions
 - Left: Unified types; Right: OpenAI and Gemini payloads
 - Include role/content mapping, tool_calls/function_call mapping, usage]
 
+### Provider Transforms
+
+```mermaid
+flowchart LR
+  subgraph U[Unified Types]
+    UM[ChatMessage]
+    UR[ChatRequest]
+    URes[ChatResponse]
+    UChunk[ChatChunk]
+  end
+
+  subgraph O[OpenAI Payload]
+    OAReq[chat.completions.create]
+    OAStream[stream chunks]
+  end
+
+  subgraph G[Gemini Payload]
+    GReq[generateContent]
+    GStream[stream chunks]
+  end
+
+  UM -->|role/content| OAReq
+  UR -->|tools/function| OAReq
+  UChunk -->|tool_call.* / content.delta| OAStream
+
+  UM -->|system/instruction merge| GReq
+  UR -->|function_declarations| GReq
+  UChunk -->|function_call / function_response| GStream
+
+  URes -->|finish_reason/usage mapping| OAReq
+  URes -->|finish_reason/usage mapping| GReq
+```
+
 ## Structured Output
 
 Reference: [docs/structured-output.md](structured-output.md)
@@ -172,6 +444,18 @@ Reference: [docs/structured-output.md](structured-output.md)
 [Create a loop diagram with the following details:
 - Title: "Structured Output Repair Loop"
 - Steps: request with JSON mode → parse → validate → if invalid, repair instruction → retry (bounded) → success → output JSON]
+
+### Structured Output Repair Loop
+
+```mermaid
+flowchart LR
+  A[Request with JSON mode + schema] --> B[Provider response]
+  B --> C{Valid JSON per schema?}
+  C -- Yes --> D[Output JSON]
+  C -- No --> E[Repair instruction]
+  E --> F[Retry (bounded)]
+  F --> B
+```
 
 ## Safety & Security
 
@@ -185,6 +469,16 @@ Reference: [docs/safety.md](safety.md), decision: [0004 Safety Policy](decisions
 - Title: "Safety Pipeline"
 - Stages: Pre-filter (PII, injection scoring) → Provider call → Post-filter (redaction) → Emission]
 
+### Safety Pipeline
+
+```mermaid
+flowchart LR
+  In[User/agent input] --> Pre[Pre-filter: PII, injection scoring, onBlock]
+  Pre --> Prov[Provider call]
+  Prov --> Post[Post-filter: redaction]
+  Post --> Emit[Emit content]
+```
+
 ## Observability & Telemetry
 
 Reference: [docs/telemetry.md](telemetry.md)
@@ -196,6 +490,21 @@ Reference: [docs/telemetry.md](telemetry.md)
 [Create a diagram with the following details:
 - Title: "Telemetry & Streaming"
 - Show timers (compile/execute), labels, and SSE events including metrics on message.end]
+
+### Telemetry & Streaming
+
+```mermaid
+flowchart LR
+  Run[Run] --> T1[Timer: compile]
+  Run --> T2[Timer: execute]
+  T1 -. labels .-> Telemetry[(Telemetry)]
+  T2 -. labels .-> Telemetry
+
+  S[Server] --> SSE[SSE Stream]
+  SSE -->|message.delta| Client
+  SSE -->|tool_call.*| Client
+  SSE -->|message.end + metrics| Client
+```
 
 ## Configuration & Settings
 
@@ -209,6 +518,24 @@ Reference: [docs/config-schema.md](config-schema.md)
 - Title: "Configuration Surfaces"
 - Inputs: YAML/JSON graph, environment variables
 - Outputs: Engine compile parameters, provider credentials, telemetry settings]
+
+### Configuration Surfaces
+
+```mermaid
+flowchart LR
+  CFG[YAML/JSON graph]
+  ENV[Environment variables]
+  Set[Settings]
+  Eng[Engine compile params]
+  Prov[Provider credentials]
+  Tel[Telemetry settings]
+
+  CFG --> Eng
+  CFG --> Set
+  ENV --> Set
+  Set --> Prov
+  Set --> Tel
+```
 
 ## Server API
 
@@ -226,6 +553,28 @@ Reference: [docs/server.md](server.md)
 - Events: role, content.delta, tool_call.start/delta/end, message.end, error, end
 - Include headers: `X-Request-ID`, timestamps, metrics on message.end]
 
+### SSE Streaming Contract
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant S as Server
+  participant P as Provider
+
+  C->>S: POST /execute/stream
+  S-->>C: event: role (assistant)
+  S-->>C: event: content.delta
+  S-->>C: event: tool_call.start
+  S-->>C: event: tool_call.delta
+  S-->>C: event: tool_call.end
+  S-->>C: event: tool.result
+  S-->>C: event: message.end (metrics)
+  S-->>C: event: error (optional)
+  S-->>C: event: done
+  Note over C,S: Headers include X-Request-ID, timestamps
+```
+
 ## Extensibility
 
 - Providers: Implement the provider base interface and mapping; add to resolver.
@@ -237,6 +586,26 @@ Reference: [docs/server.md](server.md)
 - Title: "Extension Points"
 - Nodes: Provider adapter, Tool (BaseTool), Graph Builder, Policy
 - Arrows: Integration points with Engine and Server]
+
+### Extension Points
+
+```mermaid
+flowchart LR
+  Engine[Engine]
+  Server[Server]
+  Prov[Provider Adapter]
+  Tool[Tool (BaseTool)]
+  Builder[Graph Builder]
+  Policy[Policy]
+
+  Prov --> Engine
+  Tool --> Engine
+  Builder --> Engine
+  Policy --> Engine
+  Server --> Engine
+  Prov -. register .-> Server
+  Tool -. register .-> Server
+```
 
 ## Deployment & Operations
 
@@ -253,6 +622,17 @@ References:
 - Title: "Deployment Topology"
 - Nodes: Client(s), API Gateway (optional), FastAPI pods, Provider endpoints, Telemetry backend
 - Ports and protocols: HTTPS, SSE]
+
+### Deployment Topology
+
+```mermaid
+flowchart LR
+  Clients[Client(s)] -->|HTTPS| Gateway[(API Gateway)]
+  Gateway -->|HTTPS| Pods[[FastAPI Pods]]
+  Pods -->|HTTPS| Providers[(Provider Endpoints)]
+  Pods -.-> Telemetry[(Telemetry Backend)]
+  Clients <-- SSE --> Pods
+```
 
 ## Trade-offs & Decisions (ADRs)
 
@@ -272,6 +652,37 @@ See: [docs/decisions](decisions/) for recorded design decisions:
 - Title: "E2E Coverage by Feature"
 - Axes: Orchestrations × Capabilities (tools, streaming, structured output, safety, telemetry)]
 
+### E2E Coverage by Feature
+
+```mermaid
+flowchart LR
+  subgraph Orchestrations
+    Seq[Sequential]
+    Hand[Handoff]
+    Conc[Concurrent]
+    GC[Group Chat]
+  end
+
+  subgraph Capabilities
+    Tools[Tools]
+    Stream[Streaming]
+    SO[Structured Output]
+    Safe[Safety]
+    Tele[Telemetry]
+  end
+
+  Seq --> Tools
+  Seq --> Stream
+  Seq --> SO
+  Seq --> Safe
+  Seq --> Tele
+
+  Hand --> Tools
+  Conc --> Tools
+  GC --> Tools
+  GC --> Stream
+```
+
 ## Optional Features and Installation
 
 See: [WEBSEARCH_OPTIONAL.md](../WEBSEARCH_OPTIONAL.md)
@@ -283,6 +694,32 @@ See: [WEBSEARCH_OPTIONAL.md](../WEBSEARCH_OPTIONAL.md)
   - `sse` (sse-starlette)
   - `otel` (OpenTelemetry)
 
+### Planned Enhancements
+
+```mermaid
+flowchart LR
+  subgraph Providers
+    P1[New adapters]
+    P2[Better usage mapping]
+  end
+  subgraph Tools
+    T1[Catalog expansion]
+    T2[Tool sandboxing]
+  end
+  subgraph Engine
+    E1[Persistence hooks]
+    E2[Advanced builders]
+  end
+  subgraph Safety
+    S1[Richer moderation]
+    S2[PII policy refinements]
+  end
+  subgraph Observability
+    O1[OTLP improvements]
+    O2[SSE metrics detail]
+  end
+```
+
 ## Future Work
 
 - Response schema integration for providers that support it natively.
@@ -293,4 +730,3 @@ See: [WEBSEARCH_OPTIONAL.md](../WEBSEARCH_OPTIONAL.md)
 [Create a roadmap diagram with the following details:
 - Title: "Planned Enhancements"
 - Swimlanes: Providers, Tools, Engine, Safety, Observability]
-
