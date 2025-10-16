@@ -32,14 +32,29 @@ pip install -e .[dev]
 
 The project includes several optional feature sets that can be installed as needed:
 
-- **Web Search**: `pip install -e .[websearch]` - Adds DuckDuckGo web search capabilities
-- **JSON Performance**: `pip install -e .[json]` - Uses orjson for faster JSON processing
-- **Server-Sent Events**: `pip install -e .[sse]` - Enables SSE streaming endpoints
-- **OpenTelemetry**: `pip install -e .[otel]` - Adds distributed tracing support
+- **Web Search**: `pip install -e .[websearch]` - Adds DuckDuckGo web search capabilities ⚠️ **Requires Rust/Cargo**
+- **JSON Performance**: `pip install -e .[json]` - Uses orjson for faster JSON processing ⚠️ **Requires Rust/Cargo**
+- **Server-Sent Events**: `pip install -e .[sse]` - Enables SSE streaming endpoints (Pure Python ✓)
+- **OpenTelemetry**: `pip install -e .[otel]` - Adds distributed tracing support (Pure Python ✓)
 
-To install all optional dependencies: `pip install -e .[websearch,json,sse,otel,dev]`
+**For corporate laptops without Rust/Cargo:**
+```bash
+# Install without Rust dependencies
+pip install -e .[dev,sse,otel]
+```
 
-**Note**: The `websearch` extra requires Rust/Cargo to be installed due to the `primp` dependency used by `ddgs`. On corporate laptops where Cargo may not be available, you can skip this optional dependency and the web search tool will be gracefully disabled.
+**To install all optional dependencies (requires Rust/Cargo):**
+```bash
+pip install -e .[websearch,json,sse,otel,dev]
+```
+
+**Note**: The `websearch` and `json` extras require Rust/Cargo to be installed:
+- `websearch` uses `ddgs` which depends on `primp` (Rust-based HTTP client)
+- `json` uses `orjson` (Rust-based JSON serializer)
+
+On corporate laptops where Cargo may not be available, you can skip these optional dependencies:
+- Web search tool will be gracefully disabled
+- The server will fall back to standard Python JSON serialization
 
 ## Dev Quickstart
 

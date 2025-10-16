@@ -1,12 +1,15 @@
-# Making Web Search Optional
+# Making Web Search and JSON Extras Optional
 
 ## Problem
 
-The `primp` package (v0.15.0), which is a dependency of `ddgs` (DuckDuckGo Search), requires Cargo (Rust compiler) to install. This causes installation failures on corporate laptops where Rust/Cargo may not be available.
+Both `primp` (v0.15.0) and `orjson` packages require Cargo (Rust compiler) to install. This causes installation failures on corporate laptops where Rust/Cargo may not be available:
+
+- `primp` is a dependency of `ddgs` (DuckDuckGo Search) - used for web search
+- `orjson` is used for high-performance JSON serialization
 
 ## Solution
 
-The web search functionality has been made **optional**. The project can now be installed without requiring `ddgs` or `primp`.
+Both web search and high-performance JSON functionality have been made **optional**. The project can now be installed without requiring any Rust dependencies.
 
 ## Changes Made
 
@@ -26,23 +29,26 @@ The web search functionality has been made **optional**. The project can now be 
 
 ## Installation Options
 
-### Basic Installation (without web search)
+### For Corporate Laptops (No Rust/Cargo Required)
 ```bash
-pip install -e .
-```
-
-### With Development Tools
-```bash
+# Basic installation with development tools
 pip install -e .[dev]
+
+# With SSE and OpenTelemetry support (both are pure Python)
+pip install -e .[dev,sse,otel]
 ```
 
-### With Web Search Support
+### With Web Search Support (Requires Rust/Cargo)
 ```bash
-pip install -e .[websearch]
+pip install -e .[websearch,dev]
 ```
-**Note**: Requires Rust/Cargo to be installed
 
-### All Features
+### With High-Performance JSON (Requires Rust/Cargo)
+```bash
+pip install -e .[json,dev]
+```
+
+### All Features (Requires Rust/Cargo)
 ```bash
 pip install -e .[websearch,json,sse,otel,dev]
 ```
@@ -71,17 +77,24 @@ If `ddgs` is not installed, the import will fail and the web search tool simply 
 
 If you cannot install Cargo/Rust on your corporate laptop:
 
-1. Install the project without the `websearch` extra:
+1. Install the project without the `websearch` and `json` extras:
    ```bash
-   pip install -e .[dev]
+   pip install -e .[dev,sse,otel]
    ```
 
-2. The web search tool (`tool:web-search`) will not be available, but all other functionality will work normally.
+2. What you get:
+   - ✅ All core functionality (LangGraph, FastAPI, agents, etc.)
+   - ✅ Development tools (pytest, ruff, mypy)
+   - ✅ SSE streaming support
+   - ✅ OpenTelemetry tracing
+   - ❌ Web search tool (`tool:web-search`) will not be available
+   - ❌ High-performance JSON serialization (falls back to standard Python JSON)
 
-3. If you need web search functionality, you have these alternatives:
+3. If you need web search or orjson functionality later, you have these alternatives:
    - Request IT to install Rust/Cargo
-   - Use an older version of `duckduckgo-search` that doesn't require `primp` (not recommended)
+   - Use an older version of packages that don't require Rust (not recommended)
    - Implement a custom web search tool using a different HTTP client library
+   - Use standard Python JSON (performance difference is minimal for most use cases)
 
 ## Testing
 
