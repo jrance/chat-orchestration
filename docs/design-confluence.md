@@ -378,9 +378,9 @@ Reference: [docs/tools.md](tools.md)
 flowchart LR
   I[Assistant message with tool_calls array] --> V[Validate args]
   V --> D[Dispatch to tool]
-  D --> T{Timeout?}
-  T -- Yes --> F[Fail/timeout handling]
-  F --> C[Append tool message (error) with tool_call_id]
+  D --> T{Timeout}
+  T -- Yes --> F[Timeout handling]
+  F --> C[Append tool message error with tool_call_id]
   T -- No --> X[Execute Tool]
   X --> R[Capture result]
   R --> C[Append tool message with tool_call_id]
