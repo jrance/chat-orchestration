@@ -30,7 +30,7 @@ flowchart LR
   C[Client]
 
   subgraph S["FastAPI Server"]
-    API[Compile | Validate | Execute]
+    API[Compile / Validate / Execute]
   end
 
   subgraph E["Orchestration Engine (LangGraph)"]
@@ -69,11 +69,11 @@ flowchart LR
   REG -->|dispatch| W
   W -->|HTTP| DDG
 
-  API -. |Metrics| .-> TELEM
-  ENG -. |Metrics| .-> TELEM
-  P1 -. |Metrics| .-> TELEM
-  P2 -. |Metrics| .-> TELEM
-  W -. |Metrics| .-> TELEM
+  API -. Metrics .-> TELEM
+  ENG -. Metrics .-> TELEM
+  P1 -. Metrics .-> TELEM
+  P2 -. Metrics .-> TELEM
+  W -. Metrics .-> TELEM
 ```
 
 ## Purpose & Goals
@@ -116,7 +116,7 @@ flowchart LR
   GeminiAdapter -->|HTTPS| GenAI[(Google Generative AI)]
   Tools -->|HTTP| DDG[(DuckDuckGo Search)]
 
-  Internal -. |Metrics| .-> Telemetry
+  Internal -. Metrics .-> Telemetry
 ```
 
 ## Architecture Overview
@@ -136,7 +136,7 @@ See: [docs/architecture.md](architecture.md)
 ```mermaid
 flowchart LR
   subgraph Server
-    API[Compile | Validate | Execute]
+    API[Compile / Validate / Execute]
   end
 
   subgraph Engine[Engine]
