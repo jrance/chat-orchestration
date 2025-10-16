@@ -29,21 +29,21 @@ flowchart LR
   %% Components
   C[Client]
 
-  subgraph S[FastAPI Server]
-    API[Compile · Validate · Execute]
+  subgraph S["FastAPI Server"]
+    API[Compile | Validate | Execute]
   end
 
-  subgraph E[Orchestration Engine (LangGraph)]
+  subgraph E["Orchestration Engine (LangGraph)"]
     ENG[Executor / Turn Loop]
     REG[Tool Registry]
   end
 
-  subgraph P[Providers]
+  subgraph P["Providers"]
     P1[OpenAI Adapter]
     P2[Gemini Adapter]
   end
 
-  subgraph T[Tools]
+  subgraph T["Tools"]
     W[Web Search]
   end
 
@@ -52,7 +52,7 @@ flowchart LR
   %% External services
   OA[(OpenAI API)]
   GA[(Google Generative AI)]
-  DDG[(DuckDuckGo Search) ]
+  DDG[(DuckDuckGo Search)]
 
   %% Data flows
   C -->|Request| API
@@ -69,11 +69,11 @@ flowchart LR
   REG -->|dispatch| W
   W -->|HTTP| DDG
 
-  API -.->|Metrics| TELEM
-  ENG -.->|Metrics| TELEM
-  P1 -.->|Metrics| TELEM
-  P2 -.->|Metrics| TELEM
-  W -.->|Metrics| TELEM
+  API -. |Metrics| .-> TELEM
+  ENG -. |Metrics| .-> TELEM
+  P1 -. |Metrics| .-> TELEM
+  P2 -. |Metrics| .-> TELEM
+  W -. |Metrics| .-> TELEM
 ```
 
 ## Purpose & Goals
@@ -116,7 +116,7 @@ flowchart LR
   GeminiAdapter -->|HTTPS| GenAI[(Google Generative AI)]
   Tools -->|HTTP| DDG[(DuckDuckGo Search)]
 
-  Internal -.->|Metrics| Telemetry
+  Internal -. |Metrics| .-> Telemetry
 ```
 
 ## Architecture Overview
