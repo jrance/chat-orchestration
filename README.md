@@ -28,6 +28,19 @@ python -m venv .venv
 pip install -e .[dev]
 ```
 
+### Optional Dependencies
+
+The project includes several optional feature sets that can be installed as needed:
+
+- **Web Search**: `pip install -e .[websearch]` - Adds DuckDuckGo web search capabilities
+- **JSON Performance**: `pip install -e .[json]` - Uses orjson for faster JSON processing
+- **Server-Sent Events**: `pip install -e .[sse]` - Enables SSE streaming endpoints
+- **OpenTelemetry**: `pip install -e .[otel]` - Adds distributed tracing support
+
+To install all optional dependencies: `pip install -e .[websearch,json,sse,otel,dev]`
+
+**Note**: The `websearch` extra requires Rust/Cargo to be installed due to the `primp` dependency used by `ddgs`. On corporate laptops where Cargo may not be available, you can skip this optional dependency and the web search tool will be gracefully disabled.
+
 ## Dev Quickstart
 
 ```

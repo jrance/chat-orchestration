@@ -84,6 +84,9 @@ result = execute_tool_call(tool, arguments_json="{\"q\": \"openai\"}", parameter
 
 `tool:web-search` is provided via DuckDuckGo.
 
+**Note**: This tool requires the optional `websearch` dependency. Install with: `pip install -e .[websearch]`  
+If the dependency is not installed, the tool will be gracefully skipped during registration.
+
 - Parameters:
   - `q` (string, required)
   - `max_results` (int, 1–50, default 5)

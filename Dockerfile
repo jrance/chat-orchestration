@@ -13,11 +13,23 @@ WORKDIR /app
 FROM base AS builder
 COPY pyproject.toml README.md /app/
 COPY src /app/src
+
+# Optional: Install Rust/Cargo for websearch support (requires ddgs -> primp)
+# Uncomment the following lines to enable web search functionality:
+# RUN apt-get update \
+#     && apt-get install -y --no-install-recommends curl build-essential \
+#     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+#     && . $HOME/.cargo/env \
+#     && rm -rf /var/lib/apt/lists/*
+
 RUN python -m venv /opt/venv \
     && . /opt/venv/bin/activate \
     && pip install --upgrade pip \
     && pip install -e .[sse] \
     && pip install gunicorn
+
+# Optional: Install web search support (requires Rust/Cargo - see commented lines above)
+# RUN . /opt/venv/bin/activate && . $HOME/.cargo/env && pip install -e .[websearch]
 
 # Optional OTLP extras (install only if you plan to use telemetry export)
 RUN . /opt/venv/bin/activate && pip install -e .[otel]

@@ -31,13 +31,13 @@ dependencies = [
   "pydantic>=2.12.0,<3",
   "openai>=2.3.0,<3",
   "google-generativeai>=0.8.5,<0.9",
-  "ddgs>=9.6.1,<10",
   "jsonschema>=4.23.0,<5",
 ]
 
 [project.optional-dependencies]
 json = ["orjson>=3.10.7,<4"]
 sse = ["sse-starlette>=3.0.2,<4"]
+websearch = ["ddgs>=9.6.1,<10"]
 otel = [
   "opentelemetry-api>=1.27,<2",
   "opentelemetry-sdk>=1.27,<2",
