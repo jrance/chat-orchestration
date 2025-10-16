@@ -449,11 +449,11 @@ Reference: [docs/structured-output.md](structured-output.md)
 
 ```mermaid
 flowchart LR
-  A[Request with JSON mode + schema] --> B[Provider response]
-  B --> C{Valid JSON per schema?}
+  A[Request with JSON mode and schema] --> B[Provider response]
+  B --> C{Valid JSON per schema}
   C -- Yes --> D[Output JSON]
   C -- No --> E[Repair instruction]
-  E --> F[Retry (bounded)]
+  E --> F[Retry bounded]
   F --> B
 ```
 
