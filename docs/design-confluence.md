@@ -30,7 +30,7 @@ flowchart LR
   C[Client]
 
   subgraph S[FastAPI Server]
-    API[/Compile / Validate / Execute/]
+    API[Compile · Validate · Execute]
   end
 
   subgraph E[Orchestration Engine (LangGraph)]
@@ -136,7 +136,7 @@ See: [docs/architecture.md](architecture.md)
 ```mermaid
 flowchart LR
   subgraph Server
-    API[/Compile | Validate | Execute/]
+    API[Compile | Validate | Execute]
   end
 
   subgraph Engine[Engine]
@@ -161,8 +161,8 @@ flowchart LR
   Providers -.-> Telemetry
   Tools -.-> Telemetry
 
-  API -. "Chat API" .- Providers
-  Engine -. "Tool Registry API" .- Tools
+  API -. Chat API .- Providers
+  Engine -. Tool Registry API .- Tools
 ```
 
 ## Core Data Model
@@ -224,8 +224,8 @@ erDiagram
   }
   ChatRequest ||--o{ ChatMessage : contains
   ChatResponse ||--|| ChatMessage : returns
-  ChatMessage ||--o{ ToolCall : "assistant tool_calls"
-  ChatMessage }o--|| ToolCall : "tool message -> tool_call_id"
+  ChatMessage ||--o{ ToolCall : assistant_tool_calls
+  ChatMessage }o--|| ToolCall : tool_message_to_tool_call_id
   ChatChunk }o--|| ChatMessage : relates_to
 ```
 
