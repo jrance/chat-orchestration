@@ -43,7 +43,7 @@ try:
         "max_results": 3
     })
     
-    print("✅ ✅ ✅ SUCCESS! ✅ ✅ ✅")
+    print("? ? ? SUCCESS! ? ? ?")
     print()
     print(f"Search completed successfully with {len(results)} results.")
     print("No certificate verification errors!")
@@ -66,7 +66,7 @@ try:
     
 except Exception as e:
     error_msg = str(e)
-    print("❌ ❌ ❌ FAILED! ❌ ❌ ❌")
+    print("? ? ? FAILED! ? ? ?")
     print()
     print(f"Error: {error_msg[:200]}")
     print()
@@ -78,3 +78,4 @@ except Exception as e:
         print("A different error occurred (not a certificate error).")
     
     sys.exit(1)
+

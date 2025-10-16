@@ -37,3 +37,4 @@ try:
     print(f"[OK] Client test SUCCEEDED (status {resp.status_code})")
 except Exception as e:
     print(f"[FAIL] Client test FAILED: {str(e)[:150]}")
+

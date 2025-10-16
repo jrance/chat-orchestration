@@ -21,9 +21,9 @@ print(f"Client 1 created: {client1}")
 
 try:
     resp = client1.get("https://www.bing.com")
-    print(f"✓ Client 1 test: SUCCESS (status {resp.status_code})")
+    print(f"� Client 1 test: SUCCESS (status {resp.status_code})")
 except Exception as e:
-    print(f"✗ Client 1 test: FAILED - {str(e)[:100]}")
+    print(f"? Client 1 test: FAILED - {str(e)[:100]}")
 
 print()
 print("="*60)
@@ -48,9 +48,9 @@ print(f"Client 2 created: {client2}")
 
 try:
     resp = client2.get("https://www.bing.com")
-    print(f"✓ Client 2 test: SUCCESS (status {resp.status_code})")
+    print(f"� Client 2 test: SUCCESS (status {resp.status_code})")
 except Exception as e:
-    print(f"✗ Client 2 test: FAILED - {str(e)[:100]}")
+    print(f"? Client 2 test: FAILED - {str(e)[:100]}")
 
 print()
 print("="*60)
@@ -58,6 +58,7 @@ print("STEP 4: Try client 1 again")
 print("="*60)
 try:
     resp = client1.get("https://www.bing.com")
-    print(f"✓ Client 1 retest: SUCCESS (status {resp.status_code})")
+    print(f"� Client 1 retest: SUCCESS (status {resp.status_code})")
 except Exception as e:
-    print(f"✗ Client 1 retest: FAILED - {str(e)[:100]}")
+    print(f"? Client 1 retest: FAILED - {str(e)[:100]}")
+

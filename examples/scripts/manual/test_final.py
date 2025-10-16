@@ -23,3 +23,4 @@ for i, result in enumerate(results, 1):
     print(f"\n{i}. {result.get('title', 'N/A')}")
     print(f"   URL: {result.get('href', 'N/A')}")
     print(f"   Snippet: {result.get('body', 'N/A')[:100]}...")
+

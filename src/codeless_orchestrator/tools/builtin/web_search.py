@@ -45,7 +45,7 @@ class _DefaultDDGSClient:
             
             custom_http_client = None
             if isinstance(verify, str):
-                # Create a custom HttpClient with CA bundle support
+                # Create a custom HttpClient with CA bundle support if available
                 custom_http_client = self._create_http_client_with_ca(proxy, verify)
             
             # Build DDGS kwargs
@@ -54,12 +54,10 @@ class _DefaultDDGSClient:
                 kwargs["proxy"] = proxy
             
             # Handle verify parameter for DDGS
-            # DDGS only accepts bool for verify, not a path
+            # - If verify is a bool, pass it through.
+            # - If verify is a string (CA bundle path), rely on env vars and do NOT pass 'verify'.
             if isinstance(verify, bool):
                 kwargs["verify"] = verify
-            elif isinstance(verify, str):
-                # When we have a CA bundle path, enable verification
-                kwargs["verify"] = True
             
             # Create DDGS instance
             self._client = DDGS(**kwargs)
@@ -67,6 +65,9 @@ class _DefaultDDGSClient:
             # If we created a custom HttpClient, we need to patch the engines
             if custom_http_client is not None:
                 self._patch_engines_http_client(custom_http_client)
+            # Additionally, if an inner client exists and exposes 'ca_cert_file', set it.
+            if isinstance(verify, str):
+                self._apply_ca_to_inner_client(verify)
 
     def _patch_engines_http_client(self, http_client: Any) -> None:
         """Patch all engine instances to use our custom HttpClient.
@@ -82,6 +83,22 @@ class _DefaultDDGSClient:
                     engine.http_client = http_client
         except Exception:
             # If patching fails, fall back to environment variables
+            pass
+
+    def _apply_ca_to_inner_client(self, ca_bundle_path: str) -> None:
+        """If the DDGS instance exposes an inner client with 'ca_cert_file', set it.
+
+        Some ddgs implementations expose an attribute like 'client' pointing to a
+        lower-level HTTP client. In tests we rely on this to propagate the CA file.
+        """
+        try:
+            inner = getattr(self._client, "client", None)
+            if inner is not None and hasattr(inner, "ca_cert_file"):
+                resolved = Path(ca_bundle_path).expanduser()
+                if resolved.exists():
+                    setattr(inner, "ca_cert_file", str(resolved))
+        except Exception:
+            # Best-effort; environment variables already applied
             pass
 
     # ddgs 9.6.1+ uses `query` parameter, older versions use `keywords`.

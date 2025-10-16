@@ -14,3 +14,4 @@ results = tool.invoke({"q": "Python", "max_results": 2})
 print(f"Without proxy: {len(results)} results")
 if results:
     print(f"First result: {results[0].get('title', 'N/A')}")
+

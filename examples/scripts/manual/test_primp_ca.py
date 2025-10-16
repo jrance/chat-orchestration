@@ -1,9 +1,6 @@
-"""Test primp.Client with ca_cert_file parameter - WITH DDGS imported."""
+"""Test primp.Client with ca_cert_file parameter."""
 import os
 from pathlib import Path
-
-# Import DDGS first
-from duckduckgo_search import DDGS
 
 # Load .env
 try:
@@ -44,3 +41,4 @@ except Exception as e:
     print(f"ERROR: {type(e).__name__}: {e}")
     import traceback
     traceback.print_exc()
+
